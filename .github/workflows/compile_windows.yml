@@ -1,0 +1,82 @@
+on:
+  push:
+    branches: [master]
+    paths-ignore:
+      - "**/README.md"
+      - "**/compile_linux.yml"
+      - "**/build_flatpak.yml"
+      - "**/.all-contributorsrc"
+      - "**/upload_full_src.yml"
+      - "**/windows_debug.yml"
+      - "**/upload_binaries_to_draft.yml"
+  pull_request:
+    branches: [master]
+
+name: Build on Windows
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        language: ["cpp"]
+
+    steps:
+      - name: Setup NuGet.exe for use with actions
+        uses: NuGet/setup-nuget@v2
+
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install OpenSSL
+        uses: crazy-max/ghaction-chocolatey@v3
+        with:
+          args: install openssl -y
+
+      - name: Compile Embed-Helper
+        run: |
+          cd src/ui/impl/webview/lib/webviewpp/embed-helper
+          "cmake_minimum_required(VERSION 3.12)" | Out-File -FilePath CMakeLists.txt -Encoding utf8
+          "project(embed_helper)" | Out-File -FilePath CMakeLists.txt -Append -Encoding utf8
+          "add_executable(embed_helper main.cpp)" | Out-File -FilePath CMakeLists.txt -Append -Encoding utf8
+          "target_compile_features(embed_helper PRIVATE cxx_std_17)" | Out-File -FilePath CMakeLists.txt -Append -Encoding utf8
+          mkdir build
+          cd build
+          cmake ..
+          cmake --build . --config Release
+          cd Release
+          ./embed_helper ../../../../audiopad-ui
+        shell: powershell
+
+      - name: Compile
+        run: "mkdir build && cd build && cmake .. -DEMBED_PATH=src/ui/impl/webview/lib/webviewpp/embed-helper/build/Release && cmake --build . --config Release"
+
+      - name: Upload Build Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Release
+          path: build/Release
+
+      - name: Install InnoSetup
+        uses: crazy-max/ghaction-chocolatey@v3
+        with:
+          args: install innosetup -y
+
+      - name: Install Sed
+        uses: crazy-max/ghaction-chocolatey@v3
+        with:
+          args: install sed -y
+
+      - name: Run Sed
+        run: '&"${Env:ProgramData}\chocolatey\bin\sed.exe" -i ''s%\$PATH%D:\\a\\audiopad\\audiopad%'' deployment/innosetup/Audiopad.iss'
+
+      - name: Run InnoSetup
+        run: '&"${Env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" deployment/innosetup/Audiopad.iss'
+
+      - name: Upload Installer Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Installer
+          path: deployment/innosetup/Output/setup.exe
