@@ -24,7 +24,7 @@
 <br>
 
 <p align="center">
-  <video src="https://github.com/audiopadapp/audiopad/raw/main/assets/audiopad.mp4" width="100%" controls autoplay loop muted></video>
+  <video src="https://github.com/user-attachments/assets/610e1859-1c1b-45b3-b975-1066146a673e" width="100%" controls autoplay loop muted></video>
 </p>
 
 ---
