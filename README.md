@@ -1,6 +1,31 @@
-# Audiopad
+<p align="center">
+  <img src="assets/audiopad.png" alt="Audiopad Logo" width="128" height="128">
+</p>
 
-Audiopad is a universal, high-performance, cross-platform soundboard designed for gamers, streamers, and casual users. It allows you to play audio files directly into your microphone stream or voice chat applications (such as Discord, TeamSpeak, or Skype) using native system routing, with system-wide hotkeys and a modern user interface.
+<h1 align="center">Audiopad</h1>
+
+<p align="center">
+  <a href="https://github.com/audiopadapp/audiopad/actions/workflows/release.yml">
+    <img src="https://img.shields.io/github/actions/workflow/status/audiopadapp/audiopad/release.yml?branch=main&style=for-the-badge&logo=github&color=10B981" alt="Build Status">
+  </a>
+  <a href="https://github.com/audiopadapp/audiopad/releases">
+    <img src="https://img.shields.io/github/v/release/audiopadapp/audiopad?style=for-the-badge&logo=github&color=EC4899" alt="Latest Version">
+  </a>
+  <img src="https://img.shields.io/badge/platform-Windows%20%7C%20Linux-8B5CF6?style=for-the-badge" alt="Platforms">
+  <a href="LICENSE">
+    <img src="https://img.shields.io/badge/license-GPLv3-3B82F6?style=for-the-badge&logo=gnu&logoColor=white" alt="License">
+  </a>
+</p>
+
+<p align="center">
+  <b>A universal, high-performance, cross-platform soundboard for gamers, streamers, and casual users.</b>
+</p>
+
+<br>
+
+<p align="center">
+  <video src="assets/audiopad.mp4" width="100%" controls autoplay loop muted></video>
+</p>
 
 ---
 
