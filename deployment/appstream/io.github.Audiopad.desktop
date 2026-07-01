@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=Audiopad
+GenericName=Soundboard
+Exec=audiopad %U
+Icon=io.github.Audiopad
+Terminal=false
+Categories=Audio;Music;Player;AudioVideo;
+Comment=A universal soundboard that uses PulseAudio modules or PipeWire linking
