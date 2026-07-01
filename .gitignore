@@ -61,3 +61,7 @@ desktop.ini
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+
+# Local Guides & Diagnostic Dumps
+release_workflow_guide.md
+matches.txt
