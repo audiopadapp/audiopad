@@ -1,0 +1,63 @@
+# ====================================================================
+# Audiopad .gitignore
+# ====================================================================
+
+# Existing Project-Specific Ignores
+build/
+cmake-build-debug/
+.idea/
+.vscode/
+.history/
+.cache/
+analyze/
+node_modules/
+yarn.lock
+package.json
+compile_commands.json
+
+# C/C++ Binary Build Outputs
+*.exe
+*.dll
+*.so
+*.a
+*.lib
+*.dylib
+*.obj
+*.o
+*.pdb
+*.ilk
+*.exp
+
+# CMake Generated Files (in case CMake is run from the root directory)
+CMakeCache.txt
+CMakeFiles/
+CMakeSettings.json
+CMakeUserPresets.json
+cmake_install.cmake
+install_manifest.txt
+Makefile
+**/CMakeFiles/
+**/cmake_install.cmake
+
+# Visual Studio / MSVC Development files
+.vs/
+*.user
+*.suo
+*.sln
+*.vcxproj
+*.filters
+*.sdf
+*.opensdf
+*.ipch/
+ipch/
+
+# OS-Specific Files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Logs & Temporary Files
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
