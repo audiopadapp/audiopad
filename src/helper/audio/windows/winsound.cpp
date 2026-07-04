@@ -349,6 +349,20 @@ namespace Audiopad
         }
         bool WinSound::isVBCableProperlySetup()
         {
+            if (defaultRecordingDevice)
+            {
+                auto currentDevOpt = getRecordingDevice(defaultRecordingDevice->getGUID());
+                if (currentDevOpt && currentDevOpt->isListeningToDevice())
+                {
+                    auto playbackDevice = getPlaybackDevice(currentDevOpt->getDevicePlayingThrough());
+                    if (playbackDevice && playbackDevice->getName().find("VB-Audio") != std::string::npos)
+                    {
+                        return true;
+                    }
+                }
+                return false;
+            }
+
             for (const auto &recordingDevice : getRecordingDevices())
             {
                 if (recordingDevice.isListeningToDevice())
@@ -369,6 +383,29 @@ namespace Audiopad
         bool WinSound::setupVBCable(const std::optional<RecordingDevice> &deviceOverride)
         {
             defaultRecordingDevice = deviceOverride;
+
+            // Turn off listen to VB-Cable for other active recording devices to prevent feedback/duplicate routing
+            for (const auto &recordingDevice : getRecordingDevices())
+            {
+                if (defaultRecordingDevice && recordingDevice.getGUID() == defaultRecordingDevice->getGUID())
+                {
+                    continue;
+                }
+                if (recordingDevice.isListeningToDevice())
+                {
+                    auto playbackDevice = getPlaybackDevice(recordingDevice.getDevicePlayingThrough());
+                    if (playbackDevice && playbackDevice->getName().find("VB-Audio") != std::string::npos)
+                    {
+                        recordingDevice.listenToDevice(false);
+                    }
+                }
+            }
+
+            if (!defaultRecordingDevice)
+            {
+                return true;
+            }
+
             if (isVBCableProperlySetup())
             {
                 return true;

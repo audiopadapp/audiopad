@@ -1,8 +1,8 @@
 cmake_minimum_required(VERSION 3.5)
 set(CMAKE_POLICY_VERSION_MINIMUM 3.5)
-project(audiopad VERSION 1.0.0 DESCRIPTION "A crossplatform soundboard")
+project(audiopad VERSION 1.0.1 DESCRIPTION "A crossplatform soundboard")
 
-set(FULL_VERSION_STRING "1.0.0")
+set(FULL_VERSION_STRING "1.0.1")
 option(EMBED_PATH "The path used for embedding" "OFF")
 option(USE_FLATPAK "Allows the program to run under flatpak" OFF)
 

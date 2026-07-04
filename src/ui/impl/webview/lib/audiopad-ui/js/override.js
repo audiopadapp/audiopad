@@ -109,6 +109,18 @@ async function init() {
     state.settings = { ...state.settings, ...savedSettings };
   }
 
+  // Load output and recording devices for selectors on startup
+  if (window.getOutputs) {
+    state.outputDevices = await window.getOutputs();
+  }
+  if (!state.isLinux && window.getRecordingDevices) {
+    const recData = await window.getRecordingDevices();
+    if (recData) {
+      state.recordingDevices = recData.first || [];
+      state.selectedMic = recData.second || null;
+    }
+  }
+
   // Load system theme overrides
   applyThemeStyles();
 
@@ -372,6 +384,14 @@ async function toggleOutputDevice(deviceName) {
   }
   await updateSetting('outputs', outputs);
   loadSettingsAssets(); // Refresh settings inputs
+}
+
+async function handleSelectOutputDevice(deviceName) {
+  await updateSetting('outputs', [deviceName]);
+  if (window.getOutputs) {
+    state.outputDevices = await window.getOutputs();
+  }
+  renderApp();
 }
 
 async function handleVBCableSetup() {
@@ -679,6 +699,17 @@ function renderApp() {
           </div>
           
           <div class="header-actions">
+            ${state.outputDevices.length > 0 ? `
+              <div class="output-select-container" style="display: flex; align-items: center; margin-right: 8px;">
+                <select class="sort-select" style="max-width: 200px; height: 36px; padding: 0 var(--spacing-sm); font-size: 12px;" onchange="handleSelectOutputDevice(this.value)">
+                  ${state.outputDevices.map(d => {
+                    const isActive = state.settings.outputs.includes(d.name);
+                    return `<option value="${d.name}" ${isActive ? 'selected' : ''}>Output: ${d.name} ${d.isDefault ? '(Default)' : ''}</option>`;
+                  }).join('')}
+                </select>
+              </div>
+            ` : ''}
+
             ${(state.currentView === 'folder' || state.currentView === 'favorites') ? `
               <div class="view-switcher" style="margin-right: 8px;">
                 <button class="view-btn ${state.listViewMode === 'list' ? 'active' : ''}" title="List View" onclick="changeListViewMode('list')">
@@ -1163,7 +1194,7 @@ function renderOsSettingsPanel() {
             <select id="mic-override-select" class="sort-select" style="width: 100%; height: 36px;" onchange="handleMicOverrideChange(this.value)">
               <option value="">No Override</option>
               ${state.recordingDevices.map(d => `
-                <option value="${d.name}" ${state.selectedMic && state.selectedMic.name === d.name ? 'selected' : ''}>${d.name}</option>
+                <option value="${d.guid}" ${state.selectedMic && state.selectedMic.guid === d.guid ? 'selected' : ''}>${d.name}</option>
               `).join('')}
             </select>
           </div>
