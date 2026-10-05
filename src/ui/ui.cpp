@@ -477,24 +477,43 @@ namespace Audiopad::Objects
     }
     bool Window::stopSound(const std::uint32_t &id)
     {
-        std::optional<std::uint32_t> remoteSoundId;
-        if (!Globals::gSettings.outputs.empty() && !Globals::gSettings.useAsDefaultDevice)
-        {
-            auto scoped = groupedSounds.scoped();
-            if (scoped->find(id) == scoped->end())
-            {
-                Fancy::fancy.logTime().warning() << "Failed to find remoteSound of sound " << id << std::endl;
-                return false;
-            }
+        bool stoppedAny = false;
+        std::vector<std::uint32_t> playingSoundIdsToStop;
 
-            remoteSoundId = scoped->at(id);
+        for (const auto &ps : Globals::gAudio.getPlayingSounds())
+        {
+            if (ps.id == id || ps.sound.id == id)
+            {
+                playingSoundIdsToStop.push_back(ps.id);
+            }
         }
 
-        auto status = Globals::gAudio.stop(id);
-        if (remoteSoundId)
+        if (playingSoundIdsToStop.empty())
         {
-            Globals::gAudio.stop(*remoteSoundId);
-            groupedSounds->erase(id);
+            playingSoundIdsToStop.push_back(id);
+        }
+
+        for (const auto &playId : playingSoundIdsToStop)
+        {
+            std::optional<std::uint32_t> remoteSoundId;
+            {
+                auto scoped = groupedSounds.scoped();
+                if (scoped->find(playId) != scoped->end())
+                {
+                    remoteSoundId = scoped->at(playId);
+                    scoped->erase(playId);
+                }
+            }
+
+            if (Globals::gAudio.stop(playId))
+            {
+                stoppedAny = true;
+            }
+
+            if (remoteSoundId)
+            {
+                Globals::gAudio.stop(*remoteSoundId);
+            }
         }
 
         if (Globals::gAudio.getPlayingSounds().empty())
@@ -502,7 +521,7 @@ namespace Audiopad::Objects
             onAllSoundsFinished();
         }
 
-        return status;
+        return stoppedAny;
     }
     void Window::stopSounds(bool sync)
     {

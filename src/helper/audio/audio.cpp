@@ -97,6 +97,32 @@ namespace Audiopad::Objects
             return std::nullopt;
         }
 
+        // Ensure decoder matches the actual initialized device format, channels, and sample rate.
+        // On Windows WASAPI shared mode, device->sampleRate is often 48000Hz while MP3s are 44100Hz.
+        // Re-initializing the decoder with the device's format enables miniaudio's high-quality
+        // internal resampling so MP3s play at normal speed and do not cut off before completion.
+        if (decoder->outputFormat != device->playback.format ||
+            decoder->outputChannels != device->playback.channels ||
+            decoder->outputSampleRate != device->sampleRate)
+        {
+            ma_decoder_uninit(decoder);
+            auto decoderConfig = ma_decoder_config_init(device->playback.format, device->playback.channels, device->sampleRate);
+#if defined(_WIN32)
+            res = ma_decoder_init_file_w(widen(sound.path).c_str(), &decoderConfig, decoder);
+#else
+            res = ma_decoder_init_file(sound.path.c_str(), &decoderConfig, decoder);
+#endif
+            if (res != MA_SUCCESS)
+            {
+                Fancy::fancy.logTime().failure() << "Failed to re-initialize decoder to device format: " << sound.path << std::endl;
+                ma_device_uninit(device);
+                delete decoder;
+                delete device;
+                return std::nullopt;
+            }
+            ma_decoder_get_length_in_pcm_frames(decoder, &length_in_pcm_frames);
+        }
+
         if (playbackDevice)
         {
             if (sound.remoteVolume)
@@ -140,10 +166,10 @@ namespace Audiopad::Objects
         pSound->raw.device = device;
         pSound->raw.decoder = decoder;
         pSound->length = length_in_pcm_frames;
-        pSound->sampleRate = config.sampleRate;
+        pSound->sampleRate = device->sampleRate;
         pSound->playbackDevice = playbackDevice ? *playbackDevice : defaultPlayback;
         pSound->lengthInMs = static_cast<std::uint64_t>(static_cast<double>(pSound->length) /
-                                                        static_cast<double>(config.sampleRate) * 1000);
+                                                        static_cast<double>(device->sampleRate) * 1000);
 
         playingSounds->emplace(soundId, pSound);
         return *pSound;
@@ -169,19 +195,48 @@ namespace Audiopad::Objects
     bool Audio::stop(const std::uint32_t &soundId)
     {
         auto scoped = playingSounds.scoped();
+        std::vector<std::uint32_t> idsToStop;
+
         if (scoped->find(soundId) != scoped->end())
         {
-            auto &sound = scoped->at(soundId);
-            if (sound->raw.device && sound->raw.decoder)
+            idsToStop.push_back(soundId);
+        }
+        else
+        {
+            for (const auto &pair : *scoped)
             {
-                ma_device_uninit(sound->raw.device);
-                ma_decoder_uninit(sound->raw.decoder);
+                if (pair.second && pair.second->sound.id == soundId)
+                {
+                    idsToStop.push_back(pair.first);
+                }
             }
+        }
 
-            sound->raw.device = nullptr;
-            sound->raw.decoder = nullptr;
+        if (!idsToStop.empty())
+        {
+            for (auto id : idsToStop)
+            {
+                if (scoped->find(id) != scoped->end())
+                {
+                    auto soundCopy = *scoped->at(id);
+                    auto &sound = scoped->at(id);
+                    if (sound->raw.device && sound->raw.decoder)
+                    {
+                        ma_device_uninit(sound->raw.device);
+                        ma_decoder_uninit(sound->raw.decoder);
+                    }
 
-            scoped->erase(sound->id);
+                    sound->raw.device = nullptr;
+                    sound->raw.decoder = nullptr;
+
+                    scoped->erase(id);
+
+                    if (Globals::gGui)
+                    {
+                        Globals::gGui->onSoundFinished(soundCopy);
+                    }
+                }
+            }
             return true;
         }
 
