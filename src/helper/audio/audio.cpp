@@ -1,6 +1,8 @@
 #include "audio.hpp"
+#include <chrono>
 #include <core/global/globals.hpp>
 #include <fancy.hpp>
+#include <thread>
 #if defined(_WIN32)
 #include <helper/misc/misc.hpp>
 #endif
@@ -250,6 +252,10 @@ namespace Audiopad::Objects
     }
     void Audio::onFinished(PlayingSound sound)
     {
+        // Allow hardware playback buffer to drain fully before uninitializing
+        // to prevent cutting off the last ~100-200ms of sound playback
+        std::this_thread::sleep_for(std::chrono::milliseconds(200));
+
         auto scoped = playingSounds.scoped();
         if (scoped->find(sound.id) != scoped->end())
         {
@@ -330,6 +336,17 @@ namespace Audiopad::Objects
 
         ma_uint64 readFrames{};
         ma_decoder_read_pcm_frames(sound->raw.decoder, output, frameCount, &readFrames);
+
+        if (readFrames < frameCount && output)
+        {
+            ma_decoder *pDecoder = sound->raw.decoder.load();
+            if (pDecoder)
+            {
+                ma_uint32 bytesPerFrame = ma_get_bytes_per_frame(pDecoder->outputFormat, pDecoder->outputChannels);
+                ma_uint8 *pOutputBytes = reinterpret_cast<ma_uint8 *>(output);
+                memset(pOutputBytes + (readFrames * bytesPerFrame), 0, (frameCount - readFrames) * bytesPerFrame);
+            }
+        }
 
         if (sound->shouldSeek)
         {
