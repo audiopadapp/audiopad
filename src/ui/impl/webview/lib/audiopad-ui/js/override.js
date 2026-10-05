@@ -32,6 +32,10 @@ let state = {
   currentView: 'folder', // 'folder', 'favorites', 'downloader', 'settings', 'system-info', 'help'
   searchQuery: '',
   listViewMode: 'list', // 'list', 'grid', 'soundpad'
+  activeVolumePopoverSoundId: null,
+  hoveredVolumeSoundId: null,
+  isMasterVolumeOpen: false,
+  isMasterVolumeHovered: false,
   
   recordingHotkeySoundId: null,
   recordedKeys: [],
@@ -127,6 +131,41 @@ async function init() {
   // Attach global keyboard listeners (for hotkey recording overlays)
   window.addEventListener('keydown', handleGlobalKeydown);
 
+  // Global pointerup/mouseup listener to release slider drag lock
+  window.addEventListener('pointerup', () => {
+    if (isDraggingSlider) {
+      isDraggingSlider = false;
+      if (state.hoveredVolumeSoundId !== null && state.activeVolumePopoverSoundId === null) {
+        handleVolumeMouseLeave(state.hoveredVolumeSoundId, null);
+      }
+      if (state.isMasterVolumeHovered && !state.isMasterVolumeOpen) {
+        handleMasterVolumeMouseLeave(null);
+      }
+    }
+  });
+  window.addEventListener('mouseup', () => {
+    if (isDraggingSlider) {
+      isDraggingSlider = false;
+      if (state.hoveredVolumeSoundId !== null && state.activeVolumePopoverSoundId === null) {
+        handleVolumeMouseLeave(state.hoveredVolumeSoundId, null);
+      }
+      if (state.isMasterVolumeHovered && !state.isMasterVolumeOpen) {
+        handleMasterVolumeMouseLeave(null);
+      }
+    }
+  });
+
+  // Click-outside listener to dismiss volume popovers
+  document.addEventListener('click', (e) => {
+    if (!e.target.closest('.volume-popover-container')) {
+      if (state.activeVolumePopoverSoundId !== null || state.isMasterVolumeOpen) {
+        state.activeVolumePopoverSoundId = null;
+        state.isMasterVolumeOpen = false;
+        renderApp();
+      }
+    }
+  });
+
   // Hook C++ callbacks to update our state dynamically
   bindCppCallbacks();
 
@@ -135,7 +174,13 @@ async function init() {
 
   // Poll directories and tabs configuration changes from backend
   setInterval(async () => {
-    if (window.getTabs && state.recordingHotkeySoundId === null) {
+    if (window.getTabs && 
+        state.recordingHotkeySoundId === null && 
+        state.activeVolumePopoverSoundId === null && 
+        state.hoveredVolumeSoundId === null && 
+        !isDraggingSlider && 
+        !state.isMasterVolumeOpen && 
+        !state.isMasterVolumeHovered) {
       const newTabs = await window.getTabs();
       // Compare values to minimize layout cycles
       if (JSON.stringify(newTabs) !== JSON.stringify(state.tabs)) {
@@ -333,16 +378,228 @@ async function toggleFavorite(soundId, currentFavState) {
   }
 }
 
-async function changeVolume(soundId, type, val) {
+let volumeHoverTimeout = null;
+let masterVolumeHoverTimeout = null;
+let isDraggingSlider = false;
+
+function handleSliderDragStart(e) {
+  isDraggingSlider = true;
+  if (e) e.stopPropagation();
+}
+
+function handleVolumeMouseEnter(soundId, event) {
+  if (volumeHoverTimeout) {
+    clearTimeout(volumeHoverTimeout);
+    volumeHoverTimeout = null;
+  }
+  state.hoveredVolumeSoundId = soundId;
+  
+  const target = event ? event.currentTarget : null;
+  if (target) {
+    target.classList.add('is-hovered');
+    const parentSoundpad = target.closest('.soundpad-btn');
+    if (parentSoundpad) parentSoundpad.classList.add('has-open-popover');
+    const parentCard = target.closest('.sound-grid-card');
+    if (parentCard) parentCard.classList.add('has-open-popover');
+    const parentRow = target.closest('.sound-row');
+    if (parentRow) parentRow.classList.add('has-open-popover');
+  }
+}
+
+function handleVolumeMouseLeave(soundId, event) {
+  const target = event ? event.currentTarget : null;
+  
+  if (volumeHoverTimeout) {
+    clearTimeout(volumeHoverTimeout);
+  }
+  
+  volumeHoverTimeout = setTimeout(() => {
+    if (isDraggingSlider) return;
+    if (state.activeVolumePopoverSoundId === soundId) return;
+    
+    if (state.hoveredVolumeSoundId === soundId) {
+      state.hoveredVolumeSoundId = null;
+    }
+    
+    if (target) {
+      target.classList.remove('is-hovered');
+      const parentSoundpad = target.closest('.soundpad-btn');
+      if (parentSoundpad && state.activeVolumePopoverSoundId !== soundId) {
+        parentSoundpad.classList.remove('has-open-popover');
+      }
+      const parentCard = target.closest('.sound-grid-card');
+      if (parentCard && state.activeVolumePopoverSoundId !== soundId) {
+        parentCard.classList.remove('has-open-popover');
+      }
+      const parentRow = target.closest('.sound-row');
+      if (parentRow && state.activeVolumePopoverSoundId !== soundId) {
+        parentRow.classList.remove('has-open-popover');
+      }
+    } else {
+      document.querySelectorAll('.volume-popover-container.is-hovered').forEach(el => el.classList.remove('is-hovered'));
+      document.querySelectorAll('.soundpad-btn.has-open-popover').forEach(el => {
+        if (!el.querySelector('.volume-popover-container.open')) el.classList.remove('has-open-popover');
+      });
+      document.querySelectorAll('.sound-grid-card.has-open-popover').forEach(el => {
+        if (!el.querySelector('.volume-popover-container.open')) el.classList.remove('has-open-popover');
+      });
+      document.querySelectorAll('.sound-row.has-open-popover').forEach(el => {
+        if (!el.querySelector('.volume-popover-container.open')) el.classList.remove('has-open-popover');
+      });
+    }
+  }, 300);
+}
+
+function handleMasterVolumeMouseEnter(event) {
+  if (masterVolumeHoverTimeout) {
+    clearTimeout(masterVolumeHoverTimeout);
+    masterVolumeHoverTimeout = null;
+  }
+  state.isMasterVolumeHovered = true;
+  const target = event ? event.currentTarget : null;
+  if (target) {
+    target.classList.add('is-hovered');
+  }
+}
+
+function handleMasterVolumeMouseLeave(event) {
+  const target = event ? event.currentTarget : null;
+  if (masterVolumeHoverTimeout) {
+    clearTimeout(masterVolumeHoverTimeout);
+  }
+  masterVolumeHoverTimeout = setTimeout(() => {
+    if (isDraggingSlider) return;
+    if (state.isMasterVolumeOpen) return;
+    state.isMasterVolumeHovered = false;
+    if (target) {
+      target.classList.remove('is-hovered');
+    } else {
+      const el = document.querySelector('.master-volume-container');
+      if (el) el.classList.remove('is-hovered');
+    }
+  }, 300);
+}
+
+function toggleVolumePopover(soundId, event) {
+  if (event) event.stopPropagation();
+  state.isMasterVolumeOpen = false;
+  state.activeVolumePopoverSoundId = (state.activeVolumePopoverSoundId === soundId) ? null : soundId;
+  renderApp();
+}
+
+function toggleMasterVolumePopover(event) {
+  if (event) event.stopPropagation();
+  state.activeVolumePopoverSoundId = null;
+  state.isMasterVolumeOpen = !state.isMasterVolumeOpen;
+  renderApp();
+}
+
+async function handleSoundVolumeInput(soundId, type, val) {
   const numVal = parseInt(val, 10);
+  
+  // Real-time label update without DOM re-render
+  const textElem = document.getElementById(`vol-text-${soundId}-${type}`);
+  if (textElem) {
+    textElem.innerText = `${numVal}%`;
+  }
+
+  // Update in memory
+  for (const tab of state.tabs) {
+    if (tab.sounds) {
+      const snd = tab.sounds.find(s => s.id === soundId);
+      if (snd) {
+        if (type === 'local') snd.localVolume = numVal;
+        if (type === 'remote') snd.remoteVolume = numVal;
+        break;
+      }
+    }
+  }
+
+  // Call C++ Webview bridge
   if (type === 'local' && window.setCustomLocalVolume) {
     await window.setCustomLocalVolume(soundId, numVal);
   } else if (type === 'remote' && window.setCustomRemoteVolume) {
     await window.setCustomRemoteVolume(soundId, numVal);
   }
-  // Refresh tabs info to represent updated volume
-  state.tabs = await window.getTabs();
+}
+
+async function handleResetSoundVolume(soundId, event) {
+  if (event) event.stopPropagation();
+
+  for (const tab of state.tabs) {
+    if (tab.sounds) {
+      const snd = tab.sounds.find(s => s.id === soundId);
+      if (snd) {
+        snd.localVolume = null;
+        snd.remoteVolume = null;
+        break;
+      }
+    }
+  }
+
+  if (window.setCustomLocalVolume) {
+    await window.setCustomLocalVolume(soundId, null);
+  }
+  if (window.setCustomRemoteVolume) {
+    await window.setCustomRemoteVolume(soundId, null);
+  }
+
   renderApp();
+}
+
+async function handleMasterVolumeInput(type, val) {
+  const numVal = parseInt(val, 10);
+  
+  if (state.settings.syncVolumes) {
+    state.settings.localVolume = numVal;
+    state.settings.remoteVolume = numVal;
+    
+    const elements = [
+      { id: 'master-vol-text-local', text: `${numVal}%` },
+      { id: 'master-vol-text-remote', text: `${numVal}%` },
+      { id: 'settings-vol-text-local', text: `${numVal}%` },
+      { id: 'settings-vol-text-remote', text: `${numVal}%` },
+      { id: 'master-vol-input-local', val: numVal },
+      { id: 'master-vol-input-remote', val: numVal },
+      { id: 'settings-vol-input-local', val: numVal },
+      { id: 'settings-vol-input-remote', val: numVal }
+    ];
+    elements.forEach(item => {
+      const el = document.getElementById(item.id);
+      if (el) {
+        if (item.text !== undefined) el.innerText = item.text;
+        if (item.val !== undefined) el.value = item.val;
+      }
+    });
+  } else {
+    if (type === 'local') {
+      state.settings.localVolume = numVal;
+      const t1 = document.getElementById('master-vol-text-local');
+      const t2 = document.getElementById('settings-vol-text-local');
+      if (t1) t1.innerText = `${numVal}%`;
+      if (t2) t2.innerText = `${numVal}%`;
+    } else {
+      state.settings.remoteVolume = numVal;
+      const t1 = document.getElementById('master-vol-text-remote');
+      const t2 = document.getElementById('settings-vol-text-remote');
+      if (t1) t1.innerText = `${numVal}%`;
+      if (t2) t2.innerText = `${numVal}%`;
+    }
+  }
+
+  const headerLabel = document.getElementById('header-master-vol-label');
+  if (headerLabel) {
+    headerLabel.innerText = `Master: ${state.settings.localVolume}% / ${state.settings.remoteVolume}%`;
+  }
+
+  if (window.changeSettings) {
+    await window.changeSettings(state.settings);
+  }
+}
+
+// Backwards-compatible alias
+async function changeVolume(soundId, type, val) {
+  await handleSoundVolumeInput(soundId, type, val);
 }
 
 async function handleSetSortMode(tabId, mode) {
@@ -699,6 +956,53 @@ function renderApp() {
           </div>
           
           <div class="header-actions">
+            <!-- Master Volume Quick Control -->
+            <div class="volume-popover-container master-volume-container ${state.isMasterVolumeOpen ? 'open' : ''} ${state.isMasterVolumeHovered ? 'is-hovered' : ''}" 
+                 onmouseenter="handleMasterVolumeMouseEnter(event)" 
+                 onmouseleave="handleMasterVolumeMouseLeave(event)" 
+                 onclick="event.stopPropagation()">
+              <button class="header-action-btn ${state.isMasterVolumeOpen ? 'active' : ''}" title="Master Volume Controls" onclick="toggleMasterVolumePopover(event)">
+                ${icons.volume}
+                <span id="header-master-vol-label" class="header-vol-label">Master: ${state.settings.localVolume}% / ${state.settings.remoteVolume}%</span>
+              </button>
+              <div class="volume-dropdown master-volume-dropdown ${state.isMasterVolumeOpen ? 'open' : ''}" 
+                   onmousedown="event.stopPropagation()" 
+                   onpointerdown="event.stopPropagation()" 
+                   onclick="event.stopPropagation()">
+                <div class="volume-dropdown-header">
+                  <span class="vol-dropdown-title">Master Volume Controls</span>
+                </div>
+                <div class="vol-slider-row">
+                  <div class="vol-label-group">
+                    <label>Local Master (You Hear)</label>
+                    <span id="master-vol-text-local" class="vol-val-badge">${state.settings.localVolume}%</span>
+                  </div>
+                  <input type="range" id="master-vol-input-local" min="0" max="100" 
+                         value="${state.settings.localVolume}" 
+                         onpointerdown="handleSliderDragStart(event)" 
+                         onmousedown="handleSliderDragStart(event)" 
+                         oninput="handleMasterVolumeInput('local', this.value)">
+                </div>
+                <div class="vol-slider-row">
+                  <div class="vol-label-group">
+                    <label>Remote Master (Others Hear)</label>
+                    <span id="master-vol-text-remote" class="vol-val-badge">${state.settings.remoteVolume}%</span>
+                  </div>
+                  <input type="range" id="master-vol-input-remote" min="0" max="100" 
+                         value="${state.settings.remoteVolume}" 
+                         onpointerdown="handleSliderDragStart(event)" 
+                         onmousedown="handleSliderDragStart(event)" 
+                         oninput="handleMasterVolumeInput('remote', this.value)">
+                </div>
+                <div class="vol-sync-group">
+                  <label class="checkbox-row" style="margin: 0;">
+                    <input type="checkbox" ${state.settings.syncVolumes ? 'checked' : ''} onchange="updateSetting('syncVolumes', this.checked)">
+                    <span class="checkbox-desc" style="font-size: 11px;">Lock Local & Remote volumes together</span>
+                  </label>
+                </div>
+              </div>
+            </div>
+
             ${state.outputDevices.length > 0 ? `
               <div class="output-select-container" style="display: flex; align-items: center; margin-right: 8px;">
                 <select class="sort-select" style="max-width: 200px; height: 36px; padding: 0 var(--spacing-sm); font-size: 12px;" onchange="handleSelectOutputDevice(this.value)">
@@ -740,6 +1044,8 @@ function renderApp() {
         </div>
       </main>
     </div>
+    
+    ${renderPlaybackDock()}
     
     <!-- Modal Overlays -->
     ${renderModalOverlays()}
@@ -799,18 +1105,44 @@ function renderViewContent(soundsList, isFolderView, activeTab) {
                     </button>
                   </div>
                   
-                  <div class="volume-popover-container">
-                    <button class="action-btn" title="Volume">
+                  <div class="volume-popover-container ${state.activeVolumePopoverSoundId === sound.id ? 'open' : ''} ${state.hoveredVolumeSoundId === sound.id ? 'is-hovered' : ''}" 
+                       onmouseenter="handleVolumeMouseEnter(${sound.id}, event)" 
+                       onmouseleave="handleVolumeMouseLeave(${sound.id}, event)" 
+                       onclick="event.stopPropagation()">
+                    <button class="action-btn ${state.activeVolumePopoverSoundId === sound.id ? 'active' : ''} ${sound.localVolume !== null || sound.remoteVolume !== null ? 'has-custom' : ''}" title="Adjust Volume" onclick="toggleVolumePopover(${sound.id}, event)">
                       ${icons.volume}
                     </button>
-                    <div class="volume-dropdown" onclick="event.stopPropagation()">
-                      <div class="vol-slider-row">
-                        <label>Local</label>
-                        <input type="range" min="0" max="100" value="${sound.localVolume !== null ? sound.localVolume : 100}" onchange="changeVolume(${sound.id}, 'local', this.value)">
+                    <div class="volume-dropdown ${state.activeVolumePopoverSoundId === sound.id ? 'open' : ''}" 
+                         onmousedown="event.stopPropagation()" 
+                         onpointerdown="event.stopPropagation()" 
+                         onclick="event.stopPropagation()">
+                      <div class="volume-dropdown-header">
+                        <span class="vol-dropdown-title">Volume Overrides</span>
+                        ${(sound.localVolume !== null || sound.remoteVolume !== null) ? `
+                          <button class="vol-reset-btn" onclick="handleResetSoundVolume(${sound.id}, event)" title="Reset to Master Volume">Reset</button>
+                        ` : ''}
                       </div>
                       <div class="vol-slider-row">
-                        <label>Remote</label>
-                        <input type="range" min="0" max="100" value="${sound.remoteVolume !== null ? sound.remoteVolume : 100}" onchange="changeVolume(${sound.id}, 'remote', this.value)">
+                        <div class="vol-label-group">
+                          <label>Local</label>
+                          <span id="vol-text-${sound.id}-local" class="vol-val-badge">${sound.localVolume !== null ? sound.localVolume + '%' : 'Default (' + state.settings.localVolume + '%)'}</span>
+                        </div>
+                        <input type="range" min="0" max="100" 
+                               value="${sound.localVolume !== null ? sound.localVolume : state.settings.localVolume}" 
+                               onpointerdown="handleSliderDragStart(event)" 
+                               onmousedown="handleSliderDragStart(event)" 
+                               oninput="handleSoundVolumeInput(${sound.id}, 'local', this.value)">
+                      </div>
+                      <div class="vol-slider-row">
+                        <div class="vol-label-group">
+                          <label>Remote</label>
+                          <span id="vol-text-${sound.id}-remote" class="vol-val-badge">${sound.remoteVolume !== null ? sound.remoteVolume + '%' : 'Default (' + state.settings.remoteVolume + '%)'}</span>
+                        </div>
+                        <input type="range" min="0" max="100" 
+                               value="${sound.remoteVolume !== null ? sound.remoteVolume : state.settings.remoteVolume}" 
+                               onpointerdown="handleSliderDragStart(event)" 
+                               onmousedown="handleSliderDragStart(event)" 
+                               oninput="handleSoundVolumeInput(${sound.id}, 'remote', this.value)">
                       </div>
                     </div>
                   </div>
@@ -826,7 +1158,7 @@ function renderViewContent(soundsList, isFolderView, activeTab) {
           ${soundsList.map(sound => {
             const isPlaying = !!state.playingSounds[sound.id];
             return `
-              <div class="soundpad-btn ${isPlaying ? 'playing' : ''}" onclick="handlePlaySound(${sound.id})">
+              <div class="soundpad-btn ${isPlaying ? 'playing' : ''} ${state.activeVolumePopoverSoundId === sound.id || state.hoveredVolumeSoundId === sound.id ? 'has-open-popover' : ''}" onclick="handlePlaySound(${sound.id})">
                 <div class="soundpad-btn-content">
                   <span class="soundpad-sound-name" title="${sound.name}">${sound.name}</span>
                   <span class="soundpad-hotkey">${sound.hotkeys && sound.hotkeys.length > 0 ? sound.hotkeySequence : ''}</span>
@@ -835,16 +1167,42 @@ function renderViewContent(soundsList, isFolderView, activeTab) {
                   <span class="fav-star ${sound.isFavorite ? 'active' : ''}" style="font-size: 11px;" onclick="toggleFavorite(${sound.id}, ${sound.isFavorite})">★</span>
                   <button class="soundpad-action-mini" style="color: var(--color-error);" onclick="handleStopSound(${sound.id})" title="Stop">${icons.stop}</button>
                   
-                  <div class="volume-popover-container">
-                    <button class="soundpad-action-mini" title="Volume">${icons.volume}</button>
-                    <div class="volume-dropdown" onclick="event.stopPropagation()">
-                      <div class="vol-slider-row">
-                        <label>Local</label>
-                        <input type="range" min="0" max="100" value="${sound.localVolume !== null ? sound.localVolume : 100}" onchange="changeVolume(${sound.id}, 'local', this.value)">
+                  <div class="volume-popover-container ${state.activeVolumePopoverSoundId === sound.id ? 'open' : ''} ${state.hoveredVolumeSoundId === sound.id ? 'is-hovered' : ''}" 
+                       onmouseenter="handleVolumeMouseEnter(${sound.id}, event)" 
+                       onmouseleave="handleVolumeMouseLeave(${sound.id}, event)" 
+                       onclick="event.stopPropagation()">
+                    <button class="soundpad-action-mini ${state.activeVolumePopoverSoundId === sound.id ? 'active' : ''} ${sound.localVolume !== null || sound.remoteVolume !== null ? 'has-custom' : ''}" title="Volume" onclick="toggleVolumePopover(${sound.id}, event)">${icons.volume}</button>
+                    <div class="volume-dropdown ${state.activeVolumePopoverSoundId === sound.id ? 'open' : ''}" 
+                         onmousedown="event.stopPropagation()" 
+                         onpointerdown="event.stopPropagation()" 
+                         onclick="event.stopPropagation()">
+                      <div class="volume-dropdown-header">
+                        <span class="vol-dropdown-title">Volume Overrides</span>
+                        ${(sound.localVolume !== null || sound.remoteVolume !== null) ? `
+                          <button class="vol-reset-btn" onclick="handleResetSoundVolume(${sound.id}, event)" title="Reset to Master Volume">Reset</button>
+                        ` : ''}
                       </div>
                       <div class="vol-slider-row">
-                        <label>Remote</label>
-                        <input type="range" min="0" max="100" value="${sound.remoteVolume !== null ? sound.remoteVolume : 100}" onchange="changeVolume(${sound.id}, 'remote', this.value)">
+                        <div class="vol-label-group">
+                          <label>Local</label>
+                          <span id="vol-text-${sound.id}-local" class="vol-val-badge">${sound.localVolume !== null ? sound.localVolume + '%' : 'Default (' + state.settings.localVolume + '%)'}</span>
+                        </div>
+                        <input type="range" min="0" max="100" 
+                               value="${sound.localVolume !== null ? sound.localVolume : state.settings.localVolume}" 
+                               onpointerdown="handleSliderDragStart(event)" 
+                               onmousedown="handleSliderDragStart(event)" 
+                               oninput="handleSoundVolumeInput(${sound.id}, 'local', this.value)">
+                      </div>
+                      <div class="vol-slider-row">
+                        <div class="vol-label-group">
+                          <label>Remote</label>
+                          <span id="vol-text-${sound.id}-remote" class="vol-val-badge">${sound.remoteVolume !== null ? sound.remoteVolume + '%' : 'Default (' + state.settings.remoteVolume + '%)'}</span>
+                        </div>
+                        <input type="range" min="0" max="100" 
+                               value="${sound.remoteVolume !== null ? sound.remoteVolume : state.settings.remoteVolume}" 
+                               onpointerdown="handleSliderDragStart(event)" 
+                               onmousedown="handleSliderDragStart(event)" 
+                               oninput="handleSoundVolumeInput(${sound.id}, 'remote', this.value)">
                       </div>
                     </div>
                   </div>
@@ -896,18 +1254,44 @@ function renderViewContent(soundsList, isFolderView, activeTab) {
                         </button>
                         
                         <!-- Volume Sliders Popover trigger -->
-                        <div class="volume-popover-container">
-                          <button class="action-btn" title="Adjust Volume">
+                        <div class="volume-popover-container ${state.activeVolumePopoverSoundId === sound.id ? 'open' : ''} ${state.hoveredVolumeSoundId === sound.id ? 'is-hovered' : ''}" 
+                             onmouseenter="handleVolumeMouseEnter(${sound.id}, event)" 
+                             onmouseleave="handleVolumeMouseLeave(${sound.id}, event)" 
+                             onclick="event.stopPropagation()">
+                          <button class="action-btn ${state.activeVolumePopoverSoundId === sound.id ? 'active' : ''} ${sound.localVolume !== null || sound.remoteVolume !== null ? 'has-custom' : ''}" title="Adjust Volume" onclick="toggleVolumePopover(${sound.id}, event)">
                             ${icons.volume}
                           </button>
-                          <div class="volume-dropdown" onclick="event.stopPropagation()">
-                            <div class="vol-slider-row">
-                              <label>Local Volume</label>
-                              <input type="range" min="0" max="100" value="${sound.localVolume !== null ? sound.localVolume : 100}" onchange="changeVolume(${sound.id}, 'local', this.value)">
+                          <div class="volume-dropdown ${state.activeVolumePopoverSoundId === sound.id ? 'open' : ''}" 
+                               onmousedown="event.stopPropagation()" 
+                               onpointerdown="event.stopPropagation()" 
+                               onclick="event.stopPropagation()">
+                            <div class="volume-dropdown-header">
+                              <span class="vol-dropdown-title">Volume Overrides</span>
+                              ${(sound.localVolume !== null || sound.remoteVolume !== null) ? `
+                                <button class="vol-reset-btn" onclick="handleResetSoundVolume(${sound.id}, event)" title="Reset to Master Volume">Reset</button>
+                              ` : ''}
                             </div>
                             <div class="vol-slider-row">
-                              <label>Remote Volume</label>
-                              <input type="range" min="0" max="100" value="${sound.remoteVolume !== null ? sound.remoteVolume : 100}" onchange="changeVolume(${sound.id}, 'remote', this.value)">
+                              <div class="vol-label-group">
+                                <label>Local Volume</label>
+                                <span id="vol-text-${sound.id}-local" class="vol-val-badge">${sound.localVolume !== null ? sound.localVolume + '%' : 'Default (' + state.settings.localVolume + '%)'}</span>
+                              </div>
+                              <input type="range" min="0" max="100" 
+                                     value="${sound.localVolume !== null ? sound.localVolume : state.settings.localVolume}" 
+                                     onpointerdown="handleSliderDragStart(event)" 
+                                     onmousedown="handleSliderDragStart(event)" 
+                                     oninput="handleSoundVolumeInput(${sound.id}, 'local', this.value)">
+                            </div>
+                            <div class="vol-slider-row">
+                              <div class="vol-label-group">
+                                <label>Remote Volume</label>
+                                <span id="vol-text-${sound.id}-remote" class="vol-val-badge">${sound.remoteVolume !== null ? sound.remoteVolume + '%' : 'Default (' + state.settings.remoteVolume + '%)'}</span>
+                              </div>
+                              <input type="range" min="0" max="100" 
+                                     value="${sound.remoteVolume !== null ? sound.remoteVolume : state.settings.remoteVolume}" 
+                                     onpointerdown="handleSliderDragStart(event)" 
+                                     onmousedown="handleSliderDragStart(event)" 
+                                     oninput="handleSoundVolumeInput(${sound.id}, 'remote', this.value)">
                             </div>
                           </div>
                         </div>
@@ -1074,19 +1458,39 @@ function renderViewContent(soundsList, isFolderView, activeTab) {
         <!-- Settings Panel Column 2 -->
         <div style="display: flex; flex-direction: column; gap: var(--spacing-xl);">
           <div class="card-section">
+            <div class="card-title">Master Audio Volumes</div>
+            <div style="display: flex; flex-direction: column; gap: var(--spacing-md); margin-bottom: var(--spacing-md);">
+              <div class="vol-slider-row">
+                <div class="vol-label-group">
+                  <label>Master Local Volume (You Hear)</label>
+                  <span id="settings-vol-text-local" class="vol-val-badge">${state.settings.localVolume}%</span>
+                </div>
+                <input type="range" id="settings-vol-input-local" min="0" max="100" value="${state.settings.localVolume}" oninput="handleMasterVolumeInput('local', this.value)">
+              </div>
+              <div class="vol-slider-row">
+                <div class="vol-label-group">
+                  <label>Master Remote Volume (Others Hear)</label>
+                  <span id="settings-vol-text-remote" class="vol-val-badge">${state.settings.remoteVolume}%</span>
+                </div>
+                <input type="range" id="settings-vol-input-remote" min="0" max="100" value="${state.settings.remoteVolume}" oninput="handleMasterVolumeInput('remote', this.value)">
+              </div>
+            </div>
+            <label class="checkbox-row">
+              <input type="checkbox" ${state.settings.syncVolumes ? 'checked' : ''} onchange="updateSetting('syncVolumes', this.checked)">
+              <div class="checkbox-label-wrapper">
+                <span class="checkbox-title">Sync Volume levels</span>
+                <span class="checkbox-desc">Bind local and remote playback output slider volume levels together.</span>
+              </div>
+            </label>
+          </div>
+
+          <div class="card-section">
             <div class="card-title">Audio Output Routing</div>
             <label class="checkbox-row">
               <input type="checkbox" ${state.settings.allowMultipleOutputs ? 'checked' : ''} onchange="updateSetting('allowMultipleOutputs', this.checked)">
               <div class="checkbox-label-wrapper">
                 <span class="checkbox-title">Allow multi-device routing</span>
                 <span class="checkbox-desc">Output sound streams to multiple output targets concurrently.</span>
-              </div>
-            </label>
-            <label class="checkbox-row">
-              <input type="checkbox" ${state.settings.syncVolumes ? 'checked' : ''} onchange="updateSetting('syncVolumes', this.checked)">
-              <div class="checkbox-label-wrapper">
-                <span class="checkbox-title">Sync Volume levels</span>
-                <span class="checkbox-desc">Bind local and remote playback output slider volume levels together.</span>
               </div>
             </label>
             <label class="checkbox-row">
