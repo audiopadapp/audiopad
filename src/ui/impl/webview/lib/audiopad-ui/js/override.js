@@ -60,6 +60,11 @@ let state = {
   },
   
   isLinux: false,
+  isElevated: false,
+  isVBCableInstalled: false,
+  isVBCableSetup: false,
+  dismissedVBCablePrompt: false,
+  isCheckingVBCable: false,
   outputDevices: [],
   playbackApps: [],
   recordingDevices: [],
@@ -117,11 +122,26 @@ async function init() {
   if (window.getOutputs) {
     state.outputDevices = await window.getOutputs();
   }
-  if (!state.isLinux && window.getRecordingDevices) {
-    const recData = await window.getRecordingDevices();
-    if (recData) {
-      state.recordingDevices = recData.first || [];
-      state.selectedMic = recData.second || null;
+  if (window.isElevated) {
+    try {
+      state.isElevated = await window.isElevated();
+    } catch (e) {
+      console.warn("Failed to query isElevated:", e);
+    }
+  }
+  if (!state.isLinux) {
+    if (window.getRecordingDevices) {
+      const recData = await window.getRecordingDevices();
+      if (recData) {
+        state.recordingDevices = Array.isArray(recData) ? (recData[0] || []) : (recData.first || recData.devices || []);
+        state.selectedMic = Array.isArray(recData) ? (recData[1] || null) : (recData.second || recData.selected || null);
+      }
+    }
+    if (window.isVBCableProperlySetup) {
+      state.isVBCableSetup = await window.isVBCableProperlySetup();
+    }
+    if (window.isVBCableInstalled) {
+      state.isVBCableInstalled = await window.isVBCableInstalled();
     }
   }
 
@@ -303,11 +323,26 @@ async function loadSettingsAssets() {
   if (state.isLinux && window.getPlayback) {
     state.playbackApps = await window.getPlayback();
   }
-  if (!state.isLinux && window.getRecordingDevices) {
-    const recData = await window.getRecordingDevices();
-    if (recData) {
-      state.recordingDevices = recData.first || [];
-      state.selectedMic = recData.second || null;
+  if (window.isElevated) {
+    try {
+      state.isElevated = await window.isElevated();
+    } catch (e) {
+      console.warn("Failed to query isElevated:", e);
+    }
+  }
+  if (!state.isLinux) {
+    if (window.getRecordingDevices) {
+      const recData = await window.getRecordingDevices();
+      if (recData) {
+        state.recordingDevices = Array.isArray(recData) ? (recData[0] || []) : (recData.first || recData.devices || []);
+        state.selectedMic = Array.isArray(recData) ? (recData[1] || null) : (recData.second || recData.selected || null);
+      }
+    }
+    if (window.isVBCableProperlySetup) {
+      state.isVBCableSetup = await window.isVBCableProperlySetup();
+    }
+    if (window.isVBCableInstalled) {
+      state.isVBCableInstalled = await window.isVBCableInstalled();
     }
   }
   renderApp();
@@ -653,22 +688,90 @@ async function handleSelectOutputDevice(deviceName) {
 
 async function handleVBCableSetup() {
   if (window.setupVBCable) {
-    const activeMicName = state.selectedMic ? state.selectedMic.name : "";
-    const success = await window.setupVBCable(activeMicName);
-    if (success) {
-      showToast("VB-Cable installed and configured successfully", "success");
-    } else {
-      showToast("Failed to install VB-Cable. Run app as administrator.", "error");
+    if (!state.isVBCableInstalled) {
+      showToast("VB-Audio Virtual Cable not detected. Opening download site...", "info");
+      if (window.openUrl) {
+        window.openUrl("https://vb-audio.com/Cable/");
+      }
+      return;
     }
-    loadSettingsAssets();
+
+    let micGuid = "";
+    if (state.selectedMic && state.selectedMic.guid) {
+      micGuid = state.selectedMic.guid;
+    } else if (state.recordingDevices.length > 0) {
+      micGuid = state.recordingDevices[0].guid;
+    }
+
+    if (!micGuid) {
+      showToast("No recording device available to route", "error");
+      return;
+    }
+
+    if (!state.isElevated) {
+      showToast("Requesting Administrator privileges to configure Windows audio...", "info");
+      if (window.restartAsAdmin) {
+        await window.restartAsAdmin();
+      }
+      return;
+    }
+
+    const res = await window.setupVBCable(micGuid);
+    if (res === "ok" || res === true) {
+      showToast("VB-Cable configured successfully!", "success");
+    } else if (res === "vb_cable_not_installed") {
+      showToast("VB-Audio Virtual Cable not found. Opening download page...", "info");
+      if (window.openUrl) {
+        window.openUrl("https://vb-audio.com/Cable/");
+      }
+    } else {
+      showToast("Could not configure device automatically. Use 'Sound Control Panel' button below to configure.", "error");
+    }
+    await loadSettingsAssets();
   }
 }
 
-async function handleMicOverrideChange(micName) {
+async function handleMicOverrideChange(micGuid) {
   if (window.setupVBCable) {
-    await window.setupVBCable(micName);
-    showToast(`Microphone override set to: ${micName}`, 'success');
-    loadSettingsAssets();
+    const selected = state.recordingDevices.find(d => d.guid === micGuid);
+    const devName = selected ? selected.name : micGuid;
+
+    if (!micGuid) {
+      await window.setupVBCable("");
+      showToast("Microphone override disabled", 'info');
+      await loadSettingsAssets();
+      return;
+    }
+
+    if (!state.isVBCableInstalled) {
+      showToast("VB-Audio Virtual Cable not detected. Opening download site...", "info");
+      if (window.openUrl) {
+        window.openUrl("https://vb-audio.com/Cable/");
+      }
+      await loadSettingsAssets();
+      return;
+    }
+
+    if (!state.isElevated) {
+      showToast("Requesting Administrator privileges to change microphone override...", "info");
+      if (window.restartAsAdmin) {
+        await window.restartAsAdmin();
+      }
+      return;
+    }
+
+    const res = await window.setupVBCable(micGuid);
+    if (res === "ok" || res === true) {
+      showToast(`Microphone override set to: ${devName}`, 'success');
+    } else if (res === "vb_cable_not_installed") {
+      showToast("VB-Audio Cable is not installed. Opening download page...", "info");
+      if (window.openUrl) {
+        window.openUrl("https://vb-audio.com/Cable/");
+      }
+    } else {
+      showToast("Could not set override automatically. Use 'Sound Control Panel' button below to configure manually.", 'error');
+    }
+    await loadSettingsAssets();
   }
 }
 
@@ -676,6 +779,59 @@ async function handleRestartAsAdmin() {
   if (window.restartAsAdmin) {
     await window.restartAsAdmin();
   }
+}
+
+async function handleOpenSoundControlPanel() {
+  if (window.openSoundControlPanel) {
+    await window.openSoundControlPanel();
+  }
+}
+
+function handleDownloadVBCable() {
+  if (window.openUrl) {
+    window.openUrl("https://vb-audio.com/Cable/");
+  } else {
+    window.open("https://vb-audio.com/Cable/", "_blank");
+  }
+  showToast("Opening VB-Audio Cable download page in your browser...", "info");
+}
+
+async function handleCheckVBCableInstalled() {
+  state.isCheckingVBCable = true;
+  renderApp();
+  
+  if (window.getOutputs) {
+    state.outputDevices = await window.getOutputs();
+  }
+  if (window.getRecordingDevices) {
+    const recData = await window.getRecordingDevices();
+    if (recData) {
+      state.recordingDevices = Array.isArray(recData) ? (recData[0] || []) : (recData.first || recData.devices || []);
+      state.selectedMic = Array.isArray(recData) ? (recData[1] || null) : (recData.second || recData.selected || null);
+    }
+  }
+  if (window.isVBCableInstalled) {
+    state.isVBCableInstalled = await window.isVBCableInstalled();
+  }
+  if (window.isVBCableProperlySetup) {
+    state.isVBCableSetup = await window.isVBCableProperlySetup();
+  }
+
+  state.isCheckingVBCable = false;
+
+  if (state.isVBCableInstalled) {
+    showToast("VB-Audio Virtual Cable detected! Welcome to AudioPad.", "success");
+    renderApp();
+  } else {
+    showToast("VB-Audio Virtual Cable not detected yet. Please ensure setup completed.", "error");
+    renderApp();
+  }
+}
+
+function handleSkipVBCablePrompt() {
+  state.dismissedVBCablePrompt = true;
+  showToast("AudioPad loaded in local-playback mode. Microphone routing is disabled.", "warning");
+  renderApp();
 }
 
 async function handleLinuxPassthrough(appName, activeState) {
@@ -844,9 +1000,82 @@ function changeListViewMode(mode) {
 }
 
 // --- Templates Rendering ---
+function renderVBCableRequiredPage() {
+  return `
+    <div style="width: 100vw; height: 100vh; display: flex; align-items: center; justify-content: center; background: radial-gradient(circle at 50% 25%, rgba(59, 130, 246, 0.15), transparent 65%), var(--color-bg, #0f1117); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; padding: 24px; box-sizing: border-box; overflow-y: auto;">
+      <div style="max-width: 600px; width: 100%; background: var(--color-surface, rgba(22, 27, 34, 0.9)); backdrop-filter: blur(20px); border: 1px solid var(--color-border, rgba(255, 255, 255, 0.12)); border-radius: 16px; padding: 36px 32px; box-shadow: 0 24px 48px rgba(0, 0, 0, 0.6); text-align: center; display: flex; flex-direction: column; gap: 22px;">
+        
+        <!-- Header Icon & Title -->
+        <div style="display: flex; flex-direction: column; align-items: center; gap: 14px;">
+          <div style="width: 68px; height: 68px; border-radius: 50%; background: rgba(59, 130, 246, 0.15); border: 1px solid rgba(59, 130, 246, 0.35); display: flex; align-items: center; justify-content: center; font-size: 30px;">
+            🔌
+          </div>
+          <div>
+            <h2 style="margin: 0; font-size: 22px; font-weight: 700; color: var(--color-text-primary, #ffffff); letter-spacing: -0.02em;">
+              VB-Audio Virtual Cable Required
+            </h2>
+            <p style="margin: 8px 0 0 0; font-size: 13.5px; color: var(--color-text-secondary, #94a3b8); line-height: 1.5; max-width: 480px;">
+              AudioPad requires the free <strong>VB-Audio Virtual Cable</strong> driver to route and mix soundboard audio into your microphone for Discord, games, and voice chats.
+            </p>
+          </div>
+        </div>
+
+        <!-- 3-Step Installation Guide -->
+        <div style="display: flex; flex-direction: column; gap: 10px; text-align: left; background: rgba(0, 0, 0, 0.25); border: 1px solid rgba(255, 255, 255, 0.06); border-radius: 12px; padding: 16px 20px;">
+          <div style="display: flex; align-items: flex-start; gap: 12px;">
+            <div style="min-width: 22px; height: 22px; border-radius: 50%; background: #3b82f6; color: #fff; font-size: 11px; font-weight: 700; display: flex; align-items: center; justify-content: center; margin-top: 1px;">1</div>
+            <div style="font-size: 12.5px; color: var(--color-text-primary, #e2e8f0); line-height: 1.4;">
+              <strong>Download & Extract:</strong> Download the official VB-CABLE driver zip file using the blue button below.
+            </div>
+          </div>
+          
+          <div style="display: flex; align-items: flex-start; gap: 12px;">
+            <div style="min-width: 22px; height: 22px; border-radius: 50%; background: #3b82f6; color: #fff; font-size: 11px; font-weight: 700; display: flex; align-items: center; justify-content: center; margin-top: 1px;">2</div>
+            <div style="font-size: 12.5px; color: var(--color-text-primary, #e2e8f0); line-height: 1.4;">
+              <strong>Install as Administrator:</strong> Extract the zip, right-click <code style="background: rgba(255,255,255,0.1); padding: 1px 5px; border-radius: 4px; font-family: monospace;">VBCABLE_Setup_x64.exe</code>, select <strong>Run as administrator</strong>, and click <em>Install Driver</em>.
+            </div>
+          </div>
+
+          <div style="display: flex; align-items: flex-start; gap: 12px;">
+            <div style="min-width: 22px; height: 22px; border-radius: 50%; background: #3b82f6; color: #fff; font-size: 11px; font-weight: 700; display: flex; align-items: center; justify-content: center; margin-top: 1px;">3</div>
+            <div style="font-size: 12.5px; color: var(--color-text-primary, #e2e8f0); line-height: 1.4;">
+              <strong>Activate AudioPad:</strong> Once installed, click <strong>"Check Installation"</strong> below to unlock AudioPad!
+            </div>
+          </div>
+        </div>
+
+        <!-- Buttons -->
+        <div style="display: flex; flex-direction: column; gap: 10px;">
+          <button class="btn-primary" style="padding: 13px 20px; font-size: 14px; font-weight: 600; background: #3b82f6; border: none; border-radius: 8px; color: #ffffff; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px; box-shadow: 0 4px 12px rgba(59, 130, 246, 0.35);" onclick="handleDownloadVBCable()">
+            <span>📥</span> Download VB-Audio Virtual Cable (Official Website)
+          </button>
+
+          <button class="btn-primary" style="padding: 12px 20px; font-size: 13.5px; font-weight: 600; background: var(--color-surface-hover, rgba(255, 255, 255, 0.08)); border: 1px solid var(--color-border, rgba(255, 255, 255, 0.15)); border-radius: 8px; color: var(--color-text-primary, #ffffff); cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px;" onclick="handleCheckVBCableInstalled()">
+            <span>${state.isCheckingVBCable ? icons.spinner : '🔄'}</span> Check Installation
+          </button>
+        </div>
+
+        <!-- Subtle Skip Link -->
+        <div style="margin-top: -6px;">
+          <button style="background: none; border: none; color: var(--color-text-tertiary, #64748b); font-size: 11.5px; cursor: pointer; text-decoration: underline;" onclick="handleSkipVBCablePrompt()">
+            Continue in local playback mode (soundboard on speakers only)
+          </button>
+        </div>
+
+      </div>
+    </div>
+  `;
+}
+
 function renderApp() {
   const container = document.getElementById('custom-app');
   if (!container) return;
+
+  // On Windows, if VB-Cable is NOT installed and user hasn't dismissed, show mandatory setup screen
+  if (!state.isLinux && !state.isVBCableInstalled && !state.dismissedVBCablePrompt) {
+    container.innerHTML = renderVBCableRequiredPage();
+    return;
+  }
 
   // Retrieve current active category
   let activeTitle = "";
@@ -1579,33 +1808,82 @@ function renderViewContent(soundsList, isFolderView, activeTab) {
 function renderOsSettingsPanel() {
   if (!state.isLinux) {
     // Windows VB-Cable settings
+    const isSetup = !!state.isVBCableSetup;
+    const isInstalled = !!state.isVBCableInstalled;
+    const isElevated = !!state.isElevated;
+    const selectedName = state.selectedMic ? state.selectedMic.name : '';
     return `
       <div class="card-section">
         <div class="card-title">Windows Routing Tools</div>
         <div style="display: flex; flex-direction: column; gap: var(--spacing-md);">
+          ${!isInstalled ? `
+            <div style="display: flex; align-items: center; justify-content: space-between; padding: 12px 14px; background: rgba(234, 179, 8, 0.08); border: 1px solid rgba(234, 179, 8, 0.3); border-radius: 8px;">
+              <div style="display: flex; align-items: center; gap: 10px;">
+                <span style="font-size: 18px;">⚠️</span>
+                <div>
+                  <div style="font-size: 12px; font-weight: 600; color: #eab308;">VB-Audio Virtual Cable Not Detected</div>
+                  <div style="font-size: 11px; color: var(--color-text-secondary);">Install the free VB-CABLE driver to route microphone and audio stream.</div>
+                </div>
+              </div>
+              <button class="btn-primary" style="padding: 6px 12px; font-size: 11px; background: #eab308; color: #000; font-weight: 600;" onclick="window.openUrl && window.openUrl('https://vb-audio.com/Cable/')">
+                Download VB-Cable
+              </button>
+            </div>
+          ` : ''}
+
           <div style="display: flex; justify-content: space-between; align-items: center;">
             <div class="checkbox-label-wrapper">
-              <span class="checkbox-title">VB-Audio Cable Integration</span>
-              <span class="checkbox-desc">Routes audio stream to microphone.</span>
+              <div style="display: flex; align-items: center; gap: 8px;">
+                <span class="checkbox-title">VB-Audio Cable Integration</span>
+                <span style="display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: 500; ${isSetup ? 'background-color: rgba(34, 197, 94, 0.15); color: #22c55e;' : 'background-color: rgba(239, 68, 68, 0.15); color: #ef4444;'}">
+                  ${isSetup ? '● Active' : (isInstalled ? '○ Ready to Configure' : '○ Driver Missing')}
+                </span>
+              </div>
+              <span class="checkbox-desc">
+                ${isSetup && selectedName 
+                  ? `Routing <strong>${selectedName}</strong> audio stream to VB-Cable.` 
+                  : (isInstalled ? `Routes microphone audio to virtual cable output.` : `Requires free VB-Audio Virtual Cable driver.`)}
+              </span>
             </div>
-            <button class="btn-primary" style="padding: var(--spacing-xs) var(--spacing-sm); font-size: 11px;" onclick="handleVBCableSetup()">
-              Install Setup
+            <button class="btn-primary" style="padding: var(--spacing-xs) var(--spacing-sm); font-size: 11px; ${isSetup ? 'background-color: var(--color-surface); border: 1px solid var(--color-border); color: var(--color-primary);' : ''}" onclick="handleVBCableSetup()">
+              ${isSetup ? 'Reconfigure' : (isInstalled ? 'Configure Routing' : 'Get Driver')}
             </button>
           </div>
           
           <div class="form-group" style="margin-bottom: 0;">
             <label for="mic-override-select">Override Microphone device</label>
             <select id="mic-override-select" class="sort-select" style="width: 100%; height: 36px;" onchange="handleMicOverrideChange(this.value)">
-              <option value="">No Override</option>
-              ${state.recordingDevices.map(d => `
-                <option value="${d.guid}" ${state.selectedMic && state.selectedMic.guid === d.guid ? 'selected' : ''}>${d.name}</option>
-              `).join('')}
+              <option value="" ${!isSetup || !state.selectedMic ? 'selected' : ''}>No Override</option>
+              ${state.recordingDevices.map(d => {
+                const isSelected = isSetup && state.selectedMic && (state.selectedMic.guid === d.guid || state.selectedMic.name === d.name);
+                return `<option value="${d.guid}" ${isSelected ? 'selected' : ''}>${d.name}</option>`;
+              }).join('')}
             </select>
           </div>
           
-          <button class="btn-primary" style="background-color: var(--color-error); width: 100%;" onclick="handleRestartAsAdmin()">
-            Restart as Administrator Privileges
-          </button>
+          ${isElevated ? `
+            <div style="display: flex; align-items: center; justify-content: space-between; padding: 10px 14px; background: rgba(34, 197, 94, 0.1); border: 1px solid rgba(34, 197, 94, 0.25); border-radius: 8px;">
+              <div style="display: flex; align-items: center; gap: 10px;">
+                <span style="font-size: 16px;">🛡️</span>
+                <div>
+                  <div style="font-size: 12px; font-weight: 600; color: #22c55e;">Running as Administrator</div>
+                  <div style="font-size: 11px; color: var(--color-text-secondary);">Direct audio endpoint permissions active</div>
+                </div>
+              </div>
+              <button class="btn-primary" style="padding: 6px 12px; font-size: 11px; background: var(--color-surface); border: 1px solid var(--color-border); color: var(--color-text-primary);" onclick="handleOpenSoundControlPanel()">
+                Sound Control Panel
+              </button>
+            </div>
+          ` : `
+            <div style="display: flex; flex-direction: column; gap: 8px;">
+              <button class="btn-primary" style="background-color: var(--color-accent); width: 100%;" onclick="handleRestartAsAdmin()">
+                🛡️ Elevate Privileges (UAC)
+              </button>
+              <button class="btn-primary" style="padding: 6px 12px; font-size: 11px; background: transparent; border: 1px solid var(--color-border); color: var(--color-text-secondary); width: 100%;" onclick="handleOpenSoundControlPanel()">
+                Open Sound Control Panel (Manual Fallback)
+              </button>
+            </div>
+          `}
         </div>
       </div>
     `;

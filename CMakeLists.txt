@@ -17,6 +17,10 @@ file(GLOB src
 if (WIN32)
     add_executable(audiopad WIN32 ${src} "assets/icon.rc")
 
+    if (MSVC)
+        set_target_properties(audiopad PROPERTIES LINK_FLAGS "/MANIFESTUAC:\"level='requireAdministrator' uiAccess='false'\"")
+    endif()
+
     set(CompilerFlags
         CMAKE_CXX_FLAGS
         CMAKE_CXX_FLAGS_DEBUG
@@ -126,6 +130,10 @@ set_target_properties(audiopad PROPERTIES
 
 set_target_properties(audiopad PROPERTIES VERSION ${PROJECT_VERSION})
 set_target_properties(audiopad PROPERTIES PROJECT_NAME ${PROJECT_NAME})
+
+if (MSVC)
+    set_target_properties(audiopad PROPERTIES LINK_FLAGS "/MANIFESTUAC:\"level='requireAdministrator' uiAccess='false'\"")
+endif()
 
 
 if(USE_FLATPAK)

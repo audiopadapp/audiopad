@@ -38,6 +38,7 @@ namespace Audiopad
 
             std::string getName() const;
             std::string getGUID() const;
+            std::shared_ptr<IMMDevice> getDevice() const { return device; }
         };
 
         class PlaybackDevice : public Device
@@ -69,7 +70,8 @@ namespace Audiopad
             static std::shared_ptr<WinSound> createInstance();
 
             bool isVBCableProperlySetup();
-            bool setupVBCable(const std::optional<RecordingDevice> &);
+            bool isVBCableInstalled();
+            std::string setupVBCable(const std::optional<RecordingDevice> &);
 
             std::optional<RecordingDevice> getMic();
 

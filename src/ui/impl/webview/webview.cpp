@@ -189,12 +189,34 @@ namespace Audiopad::Objects
             }
         }));
         webview->expose(Webview::Function("restartAsAdmin", [this] {
-            Globals::gGuard.reset();
+            if (Globals::gGuard)
+            {
+                (void)Globals::gGuard->reset();
+                Globals::gGuard.reset();
+            }
             wchar_t selfPath[MAX_PATH];
             GetModuleFileNameW(nullptr, selfPath, MAX_PATH);
-            ShellExecuteW(nullptr, L"runas", selfPath, nullptr, nullptr, SW_SHOWNORMAL);
+            ShellExecuteW(nullptr, L"runas", selfPath, L"--reset-mutex", nullptr, SW_SHOWNORMAL);
 
             webview->exit();
+        }));
+        webview->expose(Webview::Function("isElevated", []() -> bool {
+            BOOL elevated = FALSE;
+            HANDLE hToken = nullptr;
+            if (OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &hToken))
+            {
+                TOKEN_ELEVATION elevation;
+                DWORD cbSize = sizeof(TOKEN_ELEVATION);
+                if (GetTokenInformation(hToken, TokenElevation, &elevation, sizeof(elevation), &cbSize))
+                {
+                    elevated = (elevation.TokenIsElevated != 0);
+                }
+                CloseHandle(hToken);
+            }
+            return elevated != 0;
+        }));
+        webview->expose(Webview::Function("openSoundControlPanel", []() {
+            ShellExecuteW(nullptr, L"open", L"rundll32.exe", L"shell32.dll,Control_RunDLL mmsys.cpl,,1", nullptr, SW_SHOWNORMAL);
         }));
         webview->expose(Webview::Function("isVBCableProperlySetup", [] {
             if (Globals::gWinSound)
@@ -205,14 +227,23 @@ namespace Audiopad::Objects
             Fancy::fancy.logTime().failure() << "Windows Sound Backend not found" << std::endl;
             return false;
         }));
-        webview->expose(Webview::Function("setupVBCable", [](const std::string &micOverride) {
+        webview->expose(Webview::Function("isVBCableInstalled", [] {
+            if (Globals::gWinSound)
+            {
+                return Globals::gWinSound->isVBCableInstalled();
+            }
+
+            Fancy::fancy.logTime().failure() << "Windows Sound Backend not found" << std::endl;
+            return false;
+        }));
+        webview->expose(Webview::Function("setupVBCable", [](const std::string &micOverride) -> std::string {
             if (Globals::gWinSound)
             {
                 return Globals::gWinSound->setupVBCable(Globals::gWinSound->getRecordingDevice(micOverride));
             }
 
             Fancy::fancy.logTime().failure() << "Windows Sound Backend not found" << std::endl;
-            return false;
+            return "backend_not_found";
         }));
         webview->expose(Webview::Function(
             "getRecordingDevices", []() -> std::pair<std::vector<RecordingDevice>, std::optional<RecordingDevice>> {
@@ -239,6 +270,8 @@ namespace Audiopad::Objects
             }));
 #endif
 #if defined(__linux__)
+        webview->expose(Webview::Function("isElevated", []() -> bool { return false; }));
+        webview->expose(Webview::Function("isVBCableInstalled", []() -> bool { return false; }));
         webview->expose(Webview::Function("openUrl", [](const std::string &url) {
             if (system(("xdg-open \"" + url + "\"").c_str()) != 0) // NOLINT
             {

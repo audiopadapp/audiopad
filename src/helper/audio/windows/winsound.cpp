@@ -1,6 +1,7 @@
 #if defined(_WIN32)
 #include "winsound.hpp"
 #include <Shlwapi.h>
+#include <aclapi.h>
 #include <algorithm>
 #include <core/global/globals.hpp>
 #include <endpointvolume.h>
@@ -8,35 +9,71 @@
 #include <functiondiscoverykeys_devpkey.h>
 #include <helper/misc/misc.hpp>
 
+#pragma comment(lib, "Advapi32.lib")
+#pragma comment(lib, "Shlwapi.lib")
+
 namespace Audiopad
 {
     namespace Objects
     {
         Device::Device(IMMDevice *device)
         {
-            this->device = std::shared_ptr<IMMDevice>(device, [](IMMDevice *&ptr) { ptr->Release(); });
-
-            IPropertyStore *store = nullptr;
-            if (FAILED(device->OpenPropertyStore(STGM_READ, &store)))
+            if (!device)
             {
-                Fancy::fancy.logTime().warning() << "Failed to open property store of " << device << std::endl;
                 return;
             }
 
-            PROPVARIANT friendlyName;
-            store->GetValue(PKEY_Device_FriendlyName, &friendlyName);
+            this->device = std::shared_ptr<IMMDevice>(device, [](IMMDevice *&ptr) { ptr->Release(); });
 
-            if (friendlyName.vt == VT_LPWSTR)
+            IPropertyStore *store = nullptr;
+            if (SUCCEEDED(device->OpenPropertyStore(STGM_READ, &store)) && store)
             {
-                name = Helpers::narrow(friendlyName.pwszVal);
+                PROPVARIANT friendlyName;
+                PropVariantInit(&friendlyName);
+                if (SUCCEEDED(store->GetValue(PKEY_Device_FriendlyName, &friendlyName)))
+                {
+                    if (friendlyName.vt == VT_LPWSTR && friendlyName.pwszVal)
+                    {
+                        name = Helpers::narrow(friendlyName.pwszVal);
+                    }
+                    PropVariantClear(&friendlyName);
+                }
+
+                PROPVARIANT guidProp;
+                PropVariantInit(&guidProp);
+                if (SUCCEEDED(store->GetValue(PKEY_Device_GUID, &guidProp)))
+                {
+                    if (guidProp.vt == VT_LPWSTR && guidProp.pwszVal)
+                    {
+                        guid = Helpers::narrow(guidProp.pwszVal);
+                    }
+                    PropVariantClear(&guidProp);
+                }
+
+                store->Release();
+            }
+            else
+            {
+                Fancy::fancy.logTime().warning() << "Failed to open property store of " << device << std::endl;
             }
 
-            PROPVARIANT guidProp;
-            store->GetValue(PKEY_Device_GUID, &guidProp);
-
-            if (guidProp.vt == VT_LPWSTR)
+            if (guid.empty())
             {
-                guid = Helpers::narrow(guidProp.pwszVal);
+                LPWSTR strId = nullptr;
+                if (SUCCEEDED(device->GetId(&strId)) && strId)
+                {
+                    std::string fullId = Helpers::narrow(strId);
+                    auto pos = fullId.find_last_of('{');
+                    if (pos != std::string::npos)
+                    {
+                        guid = fullId.substr(pos);
+                    }
+                    else
+                    {
+                        guid = fullId;
+                    }
+                    CoTaskMemFree(strId);
+                }
             }
             std::transform(guid.begin(), guid.end(), guid.begin(), [](char c) { return tolower(c); });
         }
@@ -54,31 +91,28 @@ namespace Audiopad
                 enumerator->GetDefaultAudioEndpoint(eCapture, eMultimedia, &defaultDevice);
                 defaultRecordingDevice = RecordingDevice(defaultDevice);
 
-                if (defaultRecordingDevice)
+                // Check if any recording device is currently set to listen through VB-Audio
+                for (const auto &recordingDevice : getRecordingDevices())
                 {
-                    if (defaultRecordingDevice->getName().find("VB-Audio") != std::string::npos)
+                    if (recordingDevice.isListeningToDevice())
                     {
-                        for (const auto &recordingDevice : getRecordingDevices())
+                        auto device = getPlaybackDevice(recordingDevice.getDevicePlayingThrough());
+                        if (device && device->getName().find("VB-Audio") != std::string::npos)
                         {
-                            if (recordingDevice.isListeningToDevice())
-                            {
-                                auto device = getPlaybackDevice(recordingDevice.getDevicePlayingThrough());
-                                if (device->getName().find("VB-Audio") != std::string::npos)
-                                {
-                                    defaultRecordingDevice = recordingDevice;
-                                }
-                            }
+                            defaultRecordingDevice = recordingDevice;
+                            break;
                         }
-                        if (defaultRecordingDevice->getName().find("VB-Audio") != std::string::npos)
+                    }
+                }
+
+                if (defaultRecordingDevice && defaultRecordingDevice->getName().find("VB-Audio") != std::string::npos)
+                {
+                    for (const auto &recordingDevice : getRecordingDevices())
+                    {
+                        if (recordingDevice.getName().find("VB-Audio") == std::string::npos)
                         {
-                            for (const auto &recordingDevice : getRecordingDevices())
-                            {
-                                if (recordingDevice.getName().find("VB-Audio") == std::string::npos)
-                                {
-                                    defaultRecordingDevice = recordingDevice;
-                                    break;
-                                }
-                            }
+                            defaultRecordingDevice = recordingDevice;
+                            break;
                         }
                     }
                 }
@@ -108,7 +142,7 @@ namespace Audiopad
 
             IAudioEndpointVolume *endpointVolume = nullptr;
             if (FAILED(device->Activate(__uuidof(IAudioEndpointVolume), CLSCTX_INPROC_SERVER, nullptr,
-                                        reinterpret_cast<void **>(&endpointVolume))))
+                                        reinterpret_cast<void **>(&endpointVolume))) || !endpointVolume)
             {
                 Fancy::fancy.logTime().warning() << "Failed to get muted state of " << name << std::endl;
                 return false;
@@ -116,6 +150,7 @@ namespace Audiopad
 
             BOOL isMuted{};
             endpointVolume->GetMute(&isMuted);
+            endpointVolume->Release();
 
             return isMuted;
         }
@@ -128,21 +163,26 @@ namespace Audiopad
             }
 
             IPropertyStore *store = nullptr;
-            if (FAILED(device->OpenPropertyStore(STGM_READ, &store)))
+            if (FAILED(device->OpenPropertyStore(STGM_READ, &store)) || !store)
             {
                 Fancy::fancy.logTime().warning() << "Failed to get listen state of " << name << std::endl;
                 return false;
             }
 
             PROPVARIANT listenProp;
+            PropVariantInit(&listenProp);
             store->GetValue(PKEY_Device_ListenToThisDevice, &listenProp);
 
+            bool isListening = false;
             if (listenProp.vt == VT_BOOL)
             {
-                return listenProp.boolVal == -1;
+                isListening = (listenProp.boolVal == -1);
             }
 
-            return false;
+            PropVariantClear(&listenProp);
+            store->Release();
+
+            return isListening;
         }
         bool RecordingDevice::mute(bool state) const
         {
@@ -154,15 +194,172 @@ namespace Audiopad
 
             IAudioEndpointVolume *endpointVolume = nullptr;
             if (FAILED(device->Activate(__uuidof(IAudioEndpointVolume), CLSCTX_INPROC_SERVER, nullptr,
-                                        reinterpret_cast<void **>(&endpointVolume))))
+                                        reinterpret_cast<void **>(&endpointVolume))) || !endpointVolume)
             {
                 Fancy::fancy.logTime().warning() << "Failed to set mute state for " << name << std::endl;
                 return false;
             }
 
             endpointVolume->SetMute(state, nullptr);
+            endpointVolume->Release();
             return true;
         }
+        static bool enableTokenPrivilege(LPCWSTR privilege)
+        {
+            HANDLE hToken = nullptr;
+            if (!OpenProcessToken(GetCurrentProcess(), TOKEN_ADJUST_PRIVILEGES | TOKEN_QUERY, &hToken))
+            {
+                return false;
+            }
+            TOKEN_PRIVILEGES tp;
+            LUID luid;
+            if (!LookupPrivilegeValueW(nullptr, privilege, &luid))
+            {
+                CloseHandle(hToken);
+                return false;
+            }
+            tp.PrivilegeCount = 1;
+            tp.Privileges[0].Luid = luid;
+            tp.Privileges[0].Attributes = SE_PRIVILEGE_ENABLED;
+            AdjustTokenPrivileges(hToken, FALSE, &tp, sizeof(TOKEN_PRIVILEGES), nullptr, nullptr);
+            bool ok = (GetLastError() == ERROR_SUCCESS);
+            CloseHandle(hToken);
+            return ok;
+        }
+
+        static bool makeRegistryKeyWritable(const std::wstring &subKey)
+        {
+            enableTokenPrivilege(SE_TAKE_OWNERSHIP_NAME);
+            enableTokenPrivilege(SE_RESTORE_NAME);
+            enableTokenPrivilege(SE_BACKUP_NAME);
+
+            HKEY hKey = nullptr;
+            LSTATUS status = RegOpenKeyExW(HKEY_LOCAL_MACHINE, subKey.c_str(), REG_OPTION_BACKUP_RESTORE, WRITE_DAC | READ_CONTROL, &hKey);
+            if (status != ERROR_SUCCESS)
+            {
+                status = RegOpenKeyExW(HKEY_LOCAL_MACHINE, subKey.c_str(), REG_OPTION_BACKUP_RESTORE, WRITE_OWNER, &hKey);
+                if (status == ERROR_SUCCESS && hKey)
+                {
+                    PSID pAdminSid = nullptr;
+                    SID_IDENTIFIER_AUTHORITY NtAuth = SECURITY_NT_AUTHORITY;
+                    if (AllocateAndInitializeSid(&NtAuth, 2, SECURITY_BUILTIN_DOMAIN_RID, DOMAIN_ALIAS_RID_ADMINS, 0, 0, 0, 0, 0, 0, &pAdminSid))
+                    {
+                        SECURITY_DESCRIPTOR sd;
+                        InitializeSecurityDescriptor(&sd, SECURITY_DESCRIPTOR_REVISION);
+                        SetSecurityDescriptorOwner(&sd, pAdminSid, FALSE);
+                        RegSetKeySecurity(hKey, OWNER_SECURITY_INFORMATION, &sd);
+                        FreeSid(pAdminSid);
+                    }
+                    RegCloseKey(hKey);
+                    status = RegOpenKeyExW(HKEY_LOCAL_MACHINE, subKey.c_str(), REG_OPTION_BACKUP_RESTORE, WRITE_DAC | READ_CONTROL, &hKey);
+                }
+            }
+
+            if (status == ERROR_SUCCESS && hKey)
+            {
+                PSID pAdminSid = nullptr;
+                PSID pUserSid = nullptr;
+                SID_IDENTIFIER_AUTHORITY NtAuth = SECURITY_NT_AUTHORITY;
+                AllocateAndInitializeSid(&NtAuth, 2, SECURITY_BUILTIN_DOMAIN_RID, DOMAIN_ALIAS_RID_ADMINS, 0, 0, 0, 0, 0, 0, &pAdminSid);
+                AllocateAndInitializeSid(&NtAuth, 2, SECURITY_BUILTIN_DOMAIN_RID, DOMAIN_ALIAS_RID_USERS, 0, 0, 0, 0, 0, 0, &pUserSid);
+
+                EXPLICIT_ACCESSW ea[2] = {};
+                DWORD eaCount = 0;
+                if (pAdminSid)
+                {
+                    ea[eaCount].grfAccessPermissions = KEY_ALL_ACCESS;
+                    ea[eaCount].grfAccessMode = SET_ACCESS;
+                    ea[eaCount].grfInheritance = CONTAINER_INHERIT_ACE | OBJECT_INHERIT_ACE;
+                    ea[eaCount].Trustee.TrusteeForm = TRUSTEE_IS_SID;
+                    ea[eaCount].Trustee.TrusteeType = TRUSTEE_IS_GROUP;
+                    ea[eaCount].Trustee.ptstrName = (LPWSTR)pAdminSid;
+                    eaCount++;
+                }
+                if (pUserSid)
+                {
+                    ea[eaCount].grfAccessPermissions = KEY_ALL_ACCESS;
+                    ea[eaCount].grfAccessMode = SET_ACCESS;
+                    ea[eaCount].grfInheritance = CONTAINER_INHERIT_ACE | OBJECT_INHERIT_ACE;
+                    ea[eaCount].Trustee.TrusteeForm = TRUSTEE_IS_SID;
+                    ea[eaCount].Trustee.TrusteeType = TRUSTEE_IS_GROUP;
+                    ea[eaCount].Trustee.ptstrName = (LPWSTR)pUserSid;
+                    eaCount++;
+                }
+
+                PACL pOldDacl = nullptr;
+                PSECURITY_DESCRIPTOR pSD = nullptr;
+                if (GetSecurityInfo(hKey, SE_REGISTRY_KEY, DACL_SECURITY_INFORMATION, nullptr, nullptr, &pOldDacl, nullptr, &pSD) == ERROR_SUCCESS)
+                {
+                    PACL pNewDacl = nullptr;
+                    if (SetEntriesInAclW(eaCount, ea, pOldDacl, &pNewDacl) == ERROR_SUCCESS)
+                    {
+                        SetSecurityInfo(hKey, SE_REGISTRY_KEY, DACL_SECURITY_INFORMATION, nullptr, nullptr, pNewDacl, nullptr);
+                        LocalFree(pNewDacl);
+                    }
+                    if (pSD) LocalFree(pSD);
+                }
+                if (pAdminSid) FreeSid(pAdminSid);
+                if (pUserSid) FreeSid(pUserSid);
+                RegCloseKey(hKey);
+                return true;
+            }
+            return false;
+        }
+
+        static void ensureDevicePropertyKeyWritable(IMMDevice *dev, const std::string &guid)
+        {
+            std::wstring endpointId;
+            if (dev)
+            {
+                LPWSTR strId = nullptr;
+                if (SUCCEEDED(dev->GetId(&strId)) && strId)
+                {
+                    endpointId = strId;
+                    CoTaskMemFree(strId);
+                }
+            }
+
+            if (!endpointId.empty())
+            {
+                std::wstring baseKey = L"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\MMDevices\\Audio\\Capture\\" + endpointId;
+                makeRegistryKeyWritable(baseKey);
+                makeRegistryKeyWritable(baseKey + L"\\Properties");
+                return;
+            }
+
+            if (guid.empty())
+            {
+                return;
+            }
+
+            std::wstring guidW = Helpers::widen(guid);
+            HKEY hCapture = nullptr;
+            if (RegOpenKeyExW(HKEY_LOCAL_MACHINE, L"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\MMDevices\\Audio\\Capture",
+                              0, KEY_READ, &hCapture) == ERROR_SUCCESS)
+            {
+                wchar_t subKeyName[256];
+                DWORD index = 0;
+                DWORD nameLen = 256;
+                while (RegEnumKeyExW(hCapture, index++, subKeyName, &nameLen, nullptr, nullptr, nullptr, nullptr) == ERROR_SUCCESS)
+                {
+                    std::wstring name(subKeyName);
+                    std::wstring lowerName = name;
+                    std::wstring lowerGuidW = guidW;
+                    std::transform(lowerName.begin(), lowerName.end(), lowerName.begin(), ::towlower);
+                    std::transform(lowerGuidW.begin(), lowerGuidW.end(), lowerGuidW.begin(), ::towlower);
+                    if (lowerName.find(lowerGuidW) != std::wstring::npos)
+                    {
+                        std::wstring baseKey = L"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\MMDevices\\Audio\\Capture\\" + name;
+                        makeRegistryKeyWritable(baseKey);
+                        makeRegistryKeyWritable(baseKey + L"\\Properties");
+                        break;
+                    }
+                    nameLen = 256;
+                }
+                RegCloseKey(hCapture);
+            }
+        }
+
         bool RecordingDevice::listenToDevice(bool state) const
         {
             if (!device)
@@ -172,28 +369,44 @@ namespace Audiopad
                 return false;
             }
 
+            ensureDevicePropertyKeyWritable(device.get(), guid);
+
             IPropertyStore *store = nullptr;
-            if (auto res = device->OpenPropertyStore(STGM_WRITE, &store); FAILED(res))
+            HRESULT res = device->OpenPropertyStore(STGM_READWRITE, &store);
+            if (FAILED(res) || !store)
+            {
+                res = device->OpenPropertyStore(STGM_WRITE, &store);
+            }
+
+            if (FAILED(res) || !store)
             {
                 if (res == E_ACCESSDENIED)
                 {
                     Fancy::fancy.logTime().warning()
-                        << "Access Denied: You need Administrator privileges to perfrom this action" << std::endl;
+                        << "Access Denied: You need Administrator privileges to perform this action" << std::endl;
                 }
                 if (Globals::gGui)
                 {
                     Globals::gGui->onAdminRequired();
                 }
-                Fancy::fancy.logTime().warning() << "Failed to set listen state for " << name << std::endl;
+                Fancy::fancy.logTime().warning() << "Failed to set listen state for " << name << " (HRESULT: 0x" << std::hex << res << std::dec << ")" << std::endl;
                 return false;
             }
 
             PROPVARIANT listenProp;
+            PropVariantInit(&listenProp);
             listenProp.vt = VT_BOOL;
-            listenProp.boolVal = state ? -1 : 0;
+            listenProp.boolVal = state ? VARIANT_TRUE : VARIANT_FALSE;
 
-            store->SetValue(PKEY_Device_ListenToThisDevice, listenProp);
-            return true;
+            HRESULT hr = store->SetValue(PKEY_Device_ListenToThisDevice, listenProp);
+            if (SUCCEEDED(hr))
+            {
+                hr = store->Commit();
+            }
+
+            PropVariantClear(&listenProp);
+            store->Release();
+            return SUCCEEDED(hr);
         }
         bool RecordingDevice::playbackThrough(const PlaybackDevice &destination) const
         {
@@ -203,39 +416,62 @@ namespace Audiopad
                 return false;
             }
 
+            ensureDevicePropertyKeyWritable(device.get(), guid);
+
             IPropertyStore *store = nullptr;
-            if (!FAILED(device->OpenPropertyStore(STGM_WRITE, &store)))
+            HRESULT res = device->OpenPropertyStore(STGM_READWRITE, &store);
+            if (FAILED(res) || !store)
             {
-                PROPVARIANT listenProp;
-                listenProp.vt = VT_LPWSTR;
-
-                auto destVal = Helpers::widen("{0.0.0.00000000}." + destination.getGUID());
-                auto *destValRaw = new wchar_t[destVal.size() + 1];
-                StrCpyW(destValRaw, destVal.c_str());
-                listenProp.pwszVal = destValRaw;
-
-                bool success = true;
-                if (auto res = store->SetValue(PKEY_Device_PlaybackThrough, listenProp); FAILED(res))
-                {
-                    if (res == E_ACCESSDENIED)
-                    {
-                        Fancy::fancy.logTime().warning()
-                            << "Access Denied: You need Administrator privileges to perfrom this action" << std::endl;
-                        if (Globals::gGui)
-                        {
-                            Globals::gGui->onAdminRequired();
-                        }
-                    }
-                    Fancy::fancy.logTime().warning() << "Failed to write destination for " << name << std::endl;
-                    success = false;
-                }
-
-                delete[] destValRaw;
-                return success;
+                res = device->OpenPropertyStore(STGM_WRITE, &store);
             }
 
-            Fancy::fancy.logTime().warning() << "Failed to set destination for " << name << std::endl;
-            return false;
+            if (FAILED(res) || !store)
+            {
+                if (res == E_ACCESSDENIED)
+                {
+                    Fancy::fancy.logTime().warning()
+                        << "Access Denied: You need Administrator privileges to perform this action" << std::endl;
+                    if (Globals::gGui)
+                    {
+                        Globals::gGui->onAdminRequired();
+                    }
+                }
+                Fancy::fancy.logTime().warning() << "Failed to set destination for " << name << " (HRESULT: 0x" << std::hex << res << std::dec << ")" << std::endl;
+                return false;
+            }
+
+            PROPVARIANT listenProp;
+            PropVariantInit(&listenProp);
+            listenProp.vt = VT_LPWSTR;
+
+            std::wstring destVal;
+            LPWSTR destIdStr = nullptr;
+            if (destination.getDevice() && SUCCEEDED(destination.getDevice()->GetId(&destIdStr)) && destIdStr)
+            {
+                destVal = destIdStr;
+                CoTaskMemFree(destIdStr);
+            }
+            else
+            {
+                std::wstring destGuid = Helpers::widen(destination.getGUID());
+                if (!destGuid.empty() && destGuid.front() != L'{')
+                {
+                    destGuid = L"{" + destGuid + L"}";
+                }
+                destVal = L"{0.0.0.00000000}." + destGuid;
+            }
+
+            SHStrDupW(destVal.c_str(), &listenProp.pwszVal);
+
+            HRESULT hr = store->SetValue(PKEY_Device_PlaybackThrough, listenProp);
+            if (SUCCEEDED(hr))
+            {
+                hr = store->Commit();
+            }
+
+            PropVariantClear(&listenProp);
+            store->Release();
+            return SUCCEEDED(hr);
         }
         std::string RecordingDevice::getDevicePlayingThrough() const
         {
@@ -246,21 +482,28 @@ namespace Audiopad
             }
 
             IPropertyStore *store = nullptr;
-            if (!FAILED(device->OpenPropertyStore(STGM_READ, &store)))
+            if (!FAILED(device->OpenPropertyStore(STGM_READ, &store)) && store)
             {
                 PROPVARIANT listenProp;
+                PropVariantInit(&listenProp);
                 if (!FAILED(store->GetValue(PKEY_Device_PlaybackThrough, &listenProp)))
                 {
-                    if (listenProp.vt != VT_LPWSTR)
+                    if (listenProp.vt == VT_LPWSTR && listenProp.pwszVal)
                     {
-                        return "";
+                        auto prop = Helpers::narrow(listenProp.pwszVal);
+                        PropVariantClear(&listenProp);
+                        store->Release();
+
+                        auto pos = prop.find_first_of('}');
+                        if (pos != std::string::npos && pos + 2 < prop.size())
+                        {
+                            prop = prop.substr(pos + 2);
+                        }
+                        return prop;
                     }
-
-                    auto prop = Helpers::narrow(listenProp.pwszVal);
-                    prop = prop.substr(prop.find_first_of('}') + 2);
-
-                    return prop;
+                    PropVariantClear(&listenProp);
                 }
+                store->Release();
             }
 
             Fancy::fancy.logTime().warning() << "Failed to get destination for " << name << std::endl;
@@ -278,52 +521,111 @@ namespace Audiopad
         }
         std::vector<RecordingDevice> WinSound::getRecordingDevices()
         {
+            std::vector<RecordingDevice> rtn;
+            if (!enumerator)
+            {
+                return rtn;
+            }
+
             IMMDeviceCollection *devices = nullptr;
-            enumerator->EnumAudioEndpoints(eCapture, DEVICE_STATE_ACTIVE, &devices);
+            if (FAILED(enumerator->EnumAudioEndpoints(eCapture, DEVICE_STATE_ACTIVE, &devices)) || !devices)
+            {
+                return rtn;
+            }
 
             std::uint32_t deviceCount = 0;
             devices->GetCount(&deviceCount);
 
-            std::vector<RecordingDevice> rtn;
             for (std::uint32_t i = 0; deviceCount > i; i++)
             {
                 IMMDevice *device = nullptr;
-                devices->Item(i, &device);
-
-                rtn.emplace_back(RecordingDevice(device));
+                if (SUCCEEDED(devices->Item(i, &device)) && device)
+                {
+                    rtn.emplace_back(RecordingDevice(device));
+                }
             }
 
+            devices->Release();
             return rtn;
         }
         std::vector<PlaybackDevice> WinSound::getPlaybackDevices()
         {
+            std::vector<PlaybackDevice> rtn;
+            if (!enumerator)
+            {
+                return rtn;
+            }
+
             IMMDeviceCollection *devices = nullptr;
-            enumerator->EnumAudioEndpoints(eRender, DEVICE_STATE_ACTIVE, &devices);
+            if (FAILED(enumerator->EnumAudioEndpoints(eRender, DEVICE_STATE_ACTIVE, &devices)) || !devices)
+            {
+                return rtn;
+            }
 
             std::uint32_t deviceCount = 0;
             devices->GetCount(&deviceCount);
 
-            std::vector<PlaybackDevice> rtn;
             for (std::uint32_t i = 0; deviceCount > i; i++)
             {
                 IMMDevice *device = nullptr;
-                devices->Item(i, &device);
-
-                rtn.emplace_back(PlaybackDevice(device));
+                if (SUCCEEDED(devices->Item(i, &device)) && device)
+                {
+                    rtn.emplace_back(PlaybackDevice(device));
+                }
             }
 
+            devices->Release();
             return rtn;
         }
+        static bool isVBCableDeviceName(const std::string &name)
+        {
+            std::string lower = name;
+            std::transform(lower.begin(), lower.end(), lower.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+            return (lower.find("vb-audio") != std::string::npos ||
+                    lower.find("cable input") != std::string::npos ||
+                    lower.find("cable output") != std::string::npos ||
+                    lower.find("virtual cable") != std::string::npos ||
+                    lower.find("vb-cable") != std::string::npos ||
+                    lower.find("voicemeeter") != std::string::npos);
+        }
+
+        bool WinSound::isVBCableInstalled()
+        {
+            for (const auto &device : getPlaybackDevices())
+            {
+                if (isVBCableDeviceName(device.getName()))
+                {
+                    return true;
+                }
+            }
+            for (const auto &device : getRecordingDevices())
+            {
+                if (isVBCableDeviceName(device.getName()))
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
+
         std::optional<RecordingDevice> WinSound::getRecordingDevice(const std::string &guid)
         {
+            if (guid.empty())
+            {
+                return std::nullopt;
+            }
+
             std::string lowerGuid = guid;
             std::transform(lowerGuid.begin(), lowerGuid.end(), lowerGuid.begin(), [](char c) { return tolower(c); });
 
             for (auto &device : getRecordingDevices())
             {
                 std::string deviceGuid = device.getGUID();
+                std::string deviceName = device.getName();
+                std::transform(deviceName.begin(), deviceName.end(), deviceName.begin(), [](char c) { return tolower(c); });
 
-                if (lowerGuid == deviceGuid)
+                if (lowerGuid == deviceGuid || lowerGuid == deviceName ||
+                    deviceGuid.find(lowerGuid) != std::string::npos || lowerGuid.find(deviceGuid) != std::string::npos)
                 {
                     return device;
                 }
@@ -333,13 +635,21 @@ namespace Audiopad
         }
         std::optional<PlaybackDevice> WinSound::getPlaybackDevice(const std::string &guid)
         {
+            if (guid.empty())
+            {
+                return std::nullopt;
+            }
+
             std::string lowerGuid = guid;
             std::transform(lowerGuid.begin(), lowerGuid.end(), lowerGuid.begin(), [](char c) { return tolower(c); });
             for (const auto &device : getPlaybackDevices())
             {
                 std::string deviceGuid = device.getGUID();
+                std::string deviceName = device.getName();
+                std::transform(deviceName.begin(), deviceName.end(), deviceName.begin(), [](char c) { return tolower(c); });
 
-                if (lowerGuid == deviceGuid)
+                if (lowerGuid == deviceGuid || lowerGuid == deviceName ||
+                    deviceGuid.find(lowerGuid) != std::string::npos || lowerGuid.find(deviceGuid) != std::string::npos)
                 {
                     return device;
                 }
@@ -355,7 +665,7 @@ namespace Audiopad
                 if (currentDevOpt && currentDevOpt->isListeningToDevice())
                 {
                     auto playbackDevice = getPlaybackDevice(currentDevOpt->getDevicePlayingThrough());
-                    if (playbackDevice && playbackDevice->getName().find("VB-Audio") != std::string::npos)
+                    if (playbackDevice && isVBCableDeviceName(playbackDevice->getName()))
                     {
                         return true;
                     }
@@ -367,10 +677,10 @@ namespace Audiopad
             {
                 if (recordingDevice.isListeningToDevice())
                 {
-                    if (recordingDevice.getName().find("VB-Audio") == std::string::npos)
+                    if (!isVBCableDeviceName(recordingDevice.getName()))
                     {
                         auto playbackDevice = getPlaybackDevice(recordingDevice.getDevicePlayingThrough());
-                        if (playbackDevice && playbackDevice->getName().find("VB-Audio") != std::string::npos)
+                        if (playbackDevice && isVBCableDeviceName(playbackDevice->getName()))
                         {
                             return true;
                         }
@@ -380,7 +690,7 @@ namespace Audiopad
 
             return false;
         }
-        bool WinSound::setupVBCable(const std::optional<RecordingDevice> &deviceOverride)
+        std::string WinSound::setupVBCable(const std::optional<RecordingDevice> &deviceOverride)
         {
             defaultRecordingDevice = deviceOverride;
 
@@ -394,7 +704,7 @@ namespace Audiopad
                 if (recordingDevice.isListeningToDevice())
                 {
                     auto playbackDevice = getPlaybackDevice(recordingDevice.getDevicePlayingThrough());
-                    if (playbackDevice && playbackDevice->getName().find("VB-Audio") != std::string::npos)
+                    if (playbackDevice && isVBCableDeviceName(playbackDevice->getName()))
                     {
                         recordingDevice.listenToDevice(false);
                     }
@@ -403,18 +713,18 @@ namespace Audiopad
 
             if (!defaultRecordingDevice)
             {
-                return true;
+                return "ok";
             }
 
             if (isVBCableProperlySetup())
             {
-                return true;
+                return "ok";
             }
 
             bool vbCableFound = false;
             for (const auto &device : getPlaybackDevices())
             {
-                if (device.getName().find("VB-Audio") != std::string::npos)
+                if (isVBCableDeviceName(device.getName()))
                 {
                     vbCableFound = true;
                     break;
@@ -423,27 +733,33 @@ namespace Audiopad
 
             if (!vbCableFound)
             {
-                return false;
+                Fancy::fancy.logTime().failure() << "VB-Audio Cable playback device not found!" << std::endl;
+                return "vb_cable_not_installed";
             }
 
-            if (defaultRecordingDevice && defaultRecordingDevice->getName().find("VB-Audio") == std::string::npos)
+            if (defaultRecordingDevice && !isVBCableDeviceName(defaultRecordingDevice->getName()))
             {
                 if (defaultRecordingDevice->listenToDevice(true))
                 {
                     for (const auto &playbackDevice : getPlaybackDevices())
                     {
-                        if (playbackDevice.getName().find("VB-Audio") != std::string::npos)
+                        if (isVBCableDeviceName(playbackDevice.getName()))
                         {
                             if (defaultRecordingDevice->playbackThrough(playbackDevice))
                             {
-                                return true;
+                                return "ok";
                             }
                         }
                     }
+                    return "playback_through_failed";
+                }
+                else
+                {
+                    return "listen_failed";
                 }
             }
 
-            return false;
+            return "failed";
         }
         std::optional<RecordingDevice> WinSound::getMic()
         {
