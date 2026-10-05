@@ -200,4 +200,24 @@ namespace Audiopad::Objects
         auto it = std::find_if(tabs.begin(), tabs.end(), [&](const auto &tab) { return tab.path == path; });
         return it != tabs.end();
     }
+    void Data::setSoundImage(const std::uint32_t &id, const std::string &image)
+    {
+        auto sound = getSound(id);
+        if (sound)
+        {
+            sound->get().image = image;
+            auto scopedFavorites = Globals::gFavorites.scoped();
+            if (scopedFavorites->find(id) != scopedFavorites->end())
+            {
+                scopedFavorites->at(id).get().image = image;
+            }
+        }
+    }
+    void Data::setSoundsImage(const std::vector<std::uint32_t> &ids, const std::string &image)
+    {
+        for (const auto &id : ids)
+        {
+            setSoundImage(id, image);
+        }
+    }
 } // namespace Audiopad::Objects

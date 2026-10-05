@@ -39,6 +39,8 @@ namespace Audiopad
             std::vector<Sound> getFavorites();
             std::vector<std::uint32_t> getFavoriteIds();
             void markFavorite(const std::uint32_t &, bool);
+            void setSoundImage(const std::uint32_t &, const std::string &);
+            void setSoundsImage(const std::vector<std::uint32_t> &, const std::string &);
 
             void set(const Data &other);
             Data &operator=(const Data &other) = delete;
