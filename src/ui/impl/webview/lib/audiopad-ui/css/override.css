@@ -421,7 +421,7 @@ body,
   border: 1px solid var(--border-color);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-sm);
-  overflow: hidden;
+  overflow: visible;
   flex-shrink: 0; /* Prevent shrinking inside workspace-body flexbox */
 }
 
@@ -429,6 +429,22 @@ body,
   width: 100%;
   border-collapse: collapse;
   text-align: left;
+}
+
+.sounds-table th:first-child {
+  border-top-left-radius: var(--radius-lg);
+}
+
+.sounds-table th:last-child {
+  border-top-right-radius: var(--radius-lg);
+}
+
+.sounds-table tr:last-child td:first-child {
+  border-bottom-left-radius: var(--radius-lg);
+}
+
+.sounds-table tr:last-child td:last-child {
+  border-bottom-right-radius: var(--radius-lg);
 }
 
 .sounds-table th {
@@ -564,31 +580,148 @@ body,
   position: relative;
 }
 
+.volume-popover-container:hover,
+.volume-popover-container.open,
+.volume-popover-container.is-hovered {
+  z-index: 500;
+}
+
 .volume-dropdown {
   position: absolute;
   right: 0;
-  top: 100%;
-  margin-top: 8px;
+  top: calc(100% + 4px);
   background-color: var(--bg-surface);
   border: 1px solid var(--border-color);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-lg);
   padding: var(--spacing-md);
-  z-index: 100;
-  width: 200px;
+  z-index: 500;
+  width: 220px;
   display: none;
   flex-direction: column;
   gap: var(--spacing-sm);
+  cursor: default;
 }
 
+/* Invisible hover bridge to eliminate any gap/dead-zone between button and dropdown */
+.volume-dropdown::before {
+  content: "";
+  position: absolute;
+  top: -12px;
+  left: -10px;
+  right: -10px;
+  height: 12px;
+  background: transparent;
+}
+
+/* Both state-managed click .open, hover .is-hovered, AND pure CSS :hover bridging */
+.volume-popover-container.open .volume-dropdown,
+.volume-popover-container.is-hovered .volume-dropdown,
+.volume-dropdown.open,
 .volume-popover-container:hover .volume-dropdown {
+  display: flex !important;
+}
+
+.volume-dropdown-header {
   display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 1px solid var(--border-color);
+  padding-bottom: 6px;
+  margin-bottom: 2px;
+}
+
+.vol-dropdown-title {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--color-primary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.vol-reset-btn {
+  background: none;
+  border: none;
+  font-size: 11px;
+  color: var(--color-accent);
+  cursor: pointer;
+  padding: 0;
+  font-weight: 600;
+  transition: opacity var(--transition-fast);
+}
+
+.vol-reset-btn:hover {
+  text-decoration: underline;
+  opacity: 0.8;
+}
+
+.vol-label-group {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.vol-val-badge {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--color-accent);
+  font-family: monospace;
+}
+
+.action-btn.has-custom,
+.soundpad-action-mini.has-custom {
+  color: var(--color-accent) !important;
+}
+
+.action-btn.active,
+.soundpad-action-mini.active {
+  border-color: var(--color-accent) !important;
+  background-color: var(--color-accent-light, rgba(79, 70, 229, 0.1)) !important;
+  color: var(--color-accent) !important;
+}
+
+.header-action-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  height: 36px;
+  padding: 0 var(--spacing-md);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-color);
+  background-color: var(--bg-surface);
+  color: var(--color-secondary);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.header-action-btn:hover,
+.header-action-btn.active {
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+  background-color: var(--color-accent-light, rgba(79, 70, 229, 0.05));
+}
+
+.header-vol-label {
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.master-volume-dropdown {
+  width: 260px;
+}
+
+.vol-sync-group {
+  border-top: 1px solid var(--border-color);
+  padding-top: 6px;
+  margin-top: 2px;
 }
 
 .vol-slider-row {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 4px;
 }
 
 .vol-slider-row label {
@@ -601,6 +734,7 @@ body,
 .vol-slider-row input[type="range"] {
   width: 100%;
   accent-color: var(--color-accent);
+  cursor: pointer;
 }
 
 /* --- Empty / Loading States --- */
@@ -1213,8 +1347,31 @@ body,
   right: var(--spacing-xs);
 }
 
-.soundpad-btn:hover .soundpad-hover-actions {
-  opacity: 1;
+.soundpad-btn:hover .soundpad-hover-actions,
+.soundpad-btn.has-open-popover .soundpad-hover-actions,
+.soundpad-btn:has(.volume-popover-container.open) .soundpad-hover-actions,
+.soundpad-btn:has(.volume-popover-container.is-hovered) .soundpad-hover-actions,
+.soundpad-btn:has(.volume-popover-container:hover) .soundpad-hover-actions {
+  opacity: 1 !important;
+  pointer-events: auto !important;
+  z-index: 120;
+}
+
+.soundpad-btn:hover,
+.soundpad-btn.has-open-popover,
+.soundpad-btn:has(.volume-popover-container.open),
+.soundpad-btn:has(.volume-popover-container.is-hovered),
+.soundpad-btn:has(.volume-popover-container:hover) {
+  border-color: var(--color-accent);
+  z-index: 110;
+}
+
+.sound-grid-card:hover,
+.sound-grid-card.has-open-popover,
+.sound-grid-card:has(.volume-popover-container.open),
+.sound-grid-card:has(.volume-popover-container.is-hovered),
+.sound-grid-card:has(.volume-popover-container:hover) {
+  z-index: 110;
 }
 
 .soundpad-action-mini {
