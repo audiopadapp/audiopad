@@ -9,6 +9,9 @@
 #include <helper/systeminfo/systeminfo.hpp>
 #include <helper/version/check.hpp>
 #include <helper/ytdl/youtube-dl.hpp>
+#include <fstream>
+#include <helper/base64/base64.hpp>
+#include <nfd.hpp>
 
 #ifdef _WIN32
 #include "../../assets/icon.h"
@@ -139,6 +142,52 @@ namespace Audiopad::Objects
             return Globals::gData.getFavoriteIds();
         }));
         webview->expose(Webview::Function("getFavorites", [this] { return Globals::gData.getFavoriteIds(); }));
+        webview->expose(Webview::Function("pickImageFile", []() -> std::string {
+#if defined(_WIN32)
+            nfdnfilteritem_t filterItem[1] = {{L"Image files", L"png,jpg,jpeg,webp,bmp,gif"}};
+#else
+            nfdnfilteritem_t filterItem[1] = {{"Image files", "png,jpg,jpeg,webp,bmp,gif"}};
+#endif
+            nfdnchar_t *outPath = nullptr;
+            auto result = NFD::OpenDialog(outPath, filterItem, 1);
+            if (result == NFD_OKAY && outPath)
+            {
+                std::filesystem::path p(outPath);
+                NFD_FreePathN(outPath);
+
+                std::ifstream file(p, std::ios::binary);
+                if (!file.is_open())
+                {
+                    return "";
+                }
+
+                std::string buffer((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
+                file.close();
+
+                std::string ext = p.extension().string();
+                std::transform(ext.begin(), ext.end(), ext.begin(), [](char c) { return static_cast<char>(std::tolower(c)); });
+                std::string mime = "image/png";
+                if (ext == ".jpg" || ext == ".jpeg") mime = "image/jpeg";
+                else if (ext == ".webp") mime = "image/webp";
+                else if (ext == ".gif") mime = "image/gif";
+                else if (ext == ".bmp") mime = "image/bmp";
+
+                return "data:" + mime + ";base64," + base64_encode(reinterpret_cast<const unsigned char *>(buffer.data()), buffer.size(), false);
+            }
+            return "";
+        }));
+        webview->expose(Webview::Function("setSoundImage", [](const std::uint32_t &id, const std::string &image) {
+            Globals::gData.setSoundImage(id, image);
+            Globals::gConfig.data.set(Globals::gData);
+            Globals::gConfig.save();
+            return true;
+        }));
+        webview->expose(Webview::Function("setSoundsImage", [](const std::vector<std::uint32_t> &ids, const std::string &image) {
+            Globals::gData.setSoundsImage(ids, image);
+            Globals::gConfig.data.set(Globals::gData);
+            Globals::gConfig.save();
+            return true;
+        }));
         webview->expose(Webview::Function("isYoutubeDLAvailable", []() { return Globals::gYtdl.available(); }));
         webview->expose(
             Webview::AsyncFunction("getYoutubeDLInfo", [this](Webview::Promise promise, const std::string &url) {
