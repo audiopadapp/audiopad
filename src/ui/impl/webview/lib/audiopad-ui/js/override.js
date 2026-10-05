@@ -254,7 +254,7 @@ function bindCppCallbacks() {
 
   window.updateSound = function(playingSound) {
     state.playingSounds[playingSound.sound.id] = playingSound;
-    renderApp();
+    updatePlaybackDockInPlace(playingSound);
   };
 
   window.finishSound = function(playingSound) {
@@ -392,7 +392,16 @@ async function handlePlaySound(soundId) {
 
 async function handleStopSound(soundId) {
   if (window.stopSound) {
-    await window.stopSound(soundId);
+    const ps = state.playingSounds[soundId];
+    if (ps && ps.id) {
+      await window.stopSound(ps.id);
+    } else {
+      await window.stopSound(soundId);
+    }
+  }
+  if (state.playingSounds[soundId]) {
+    delete state.playingSounds[soundId];
+    renderApp();
   }
 }
 
@@ -1272,6 +1281,22 @@ function renderApp() {
   const container = document.getElementById('custom-app');
   if (!container) return;
 
+  // Save scroll positions before re-rendering so list never jumps
+  const wsBody = document.querySelector('.workspace-body');
+  const wsScrollTop = wsBody ? wsBody.scrollTop : 0;
+  const wsScrollLeft = wsBody ? wsBody.scrollLeft : 0;
+
+  const folderList = document.querySelector('.folder-list');
+  const folderScrollTop = folderList ? folderList.scrollTop : 0;
+
+  const tableContainer = document.querySelector('.table-container');
+  const tableScrollTop = tableContainer ? tableContainer.scrollTop : 0;
+  const tableScrollLeft = tableContainer ? tableContainer.scrollLeft : 0;
+
+  const activeElemId = document.activeElement && document.activeElement.id ? document.activeElement.id : null;
+  const activeElemStart = (document.activeElement && 'selectionStart' in document.activeElement) ? document.activeElement.selectionStart : null;
+  const activeElemEnd = (document.activeElement && 'selectionEnd' in document.activeElement) ? document.activeElement.selectionEnd : null;
+
   // On Windows, if VB-Cable is NOT installed and user hasn't dismissed, show mandatory setup screen
   if (!state.isLinux && !state.isVBCableInstalled && !state.dismissedVBCablePrompt) {
     container.innerHTML = renderVBCableRequiredPage();
@@ -1491,6 +1516,31 @@ function renderApp() {
       `).join('')}
     </div>
   `;
+
+  // Restore scroll positions so the sound list never jumps to the top
+  const newWsBody = document.querySelector('.workspace-body');
+  if (newWsBody) {
+    newWsBody.scrollTop = wsScrollTop;
+    newWsBody.scrollLeft = wsScrollLeft;
+  }
+  const newFolderList = document.querySelector('.folder-list');
+  if (newFolderList) {
+    newFolderList.scrollTop = folderScrollTop;
+  }
+  const newTableContainer = document.querySelector('.table-container');
+  if (newTableContainer) {
+    newTableContainer.scrollTop = tableScrollTop;
+    newTableContainer.scrollLeft = tableScrollLeft;
+  }
+  if (activeElemId) {
+    const el = document.getElementById(activeElemId);
+    if (el) {
+      el.focus();
+      if (activeElemStart !== null && 'setSelectionRange' in el) {
+        try { el.setSelectionRange(activeElemStart, activeElemEnd); } catch (e) {}
+      }
+    }
+  }
 }
 
 // Render dynamic subcomponents inside the workspace body
@@ -2148,6 +2198,33 @@ function renderOsSettingsPanel() {
   }
 }
 
+function updatePlaybackDockInPlace(playingSound) {
+  const dock = document.getElementById('playback-dock');
+  if (!dock) {
+    renderApp();
+    return;
+  }
+  const length = playingSound.lengthInMs || 1;
+  const current = playingSound.readInMs || 0;
+  const percentage = Math.min((current / length) * 100, 100);
+
+  const formatMs = (ms) => {
+    const totalSecs = Math.floor(ms / 1000);
+    const mins = Math.floor(totalSecs / 60);
+    const secs = totalSecs % 60;
+    return `${mins}:${secs.toString().padStart(2, '0')}`;
+  };
+
+  const curTime = document.getElementById('playback-dock-current');
+  if (curTime) curTime.textContent = formatMs(current);
+
+  const totalTime = document.getElementById('playback-dock-length');
+  if (totalTime) totalTime.textContent = formatMs(length);
+
+  const fill = document.getElementById('playback-dock-fill');
+  if (fill) fill.style.width = `${percentage}%`;
+}
+
 // Global bottom playback controller bar showing progress details
 function renderPlaybackDock() {
   const activeIds = Object.keys(state.playingSounds);
@@ -2170,18 +2247,18 @@ function renderPlaybackDock() {
   };
 
   return `
-    <div style="position: fixed; bottom: 20px; left: 270px; right: 20px; background-color: var(--bg-surface); border: 1px solid var(--border-color); border-radius: var(--radius-lg); box-shadow: var(--shadow-lg); padding: var(--spacing-md); display: flex; align-items: center; justify-content: space-between; z-index: 500; gap: var(--spacing-lg);">
+    <div id="playback-dock" style="position: fixed; bottom: 20px; left: 270px; right: 20px; background-color: var(--bg-surface); border: 1px solid var(--border-color); border-radius: var(--radius-lg); box-shadow: var(--shadow-lg); padding: var(--spacing-md); display: flex; align-items: center; justify-content: space-between; z-index: 500; gap: var(--spacing-lg);">
       <div style="display: flex; flex-direction: column; width: 30%;">
-        <span style="font-size: 13px; font-weight: 600; color: var(--color-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${details.sound.name}</span>
-        <span style="font-size: 11px; color: var(--color-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${details.sound.path}</span>
+        <span id="playback-dock-name" style="font-size: 13px; font-weight: 600; color: var(--color-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${details.sound.name}</span>
+        <span id="playback-dock-path" style="font-size: 11px; color: var(--color-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${details.sound.path}</span>
       </div>
       
       <div style="display: flex; align-items: center; gap: var(--spacing-sm); flex-grow: 1; justify-content: center;">
-        <span style="font-size: 11px; color: var(--color-muted);">${formatMs(current)}</span>
+        <span id="playback-dock-current" style="font-size: 11px; color: var(--color-muted);">${formatMs(current)}</span>
         <div class="progress-bar-wrapper" style="width: 60%; height: 6px; cursor: pointer;" onclick="handleProgressBarSeek(${playSoundId}, event)">
-          <div class="progress-bar-fill" style="width: ${percentage}%"></div>
+          <div id="playback-dock-fill" class="progress-bar-fill" style="width: ${percentage}%"></div>
         </div>
-        <span style="font-size: 11px; color: var(--color-muted);">${formatMs(length)}</span>
+        <span id="playback-dock-length" style="font-size: 11px; color: var(--color-muted);">${formatMs(length)}</span>
       </div>
       
       <div style="display: flex; align-items: center; gap: var(--spacing-sm); width: 20%; justify-content: flex-end;">
