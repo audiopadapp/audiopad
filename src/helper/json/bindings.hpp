@@ -56,6 +56,7 @@ namespace nlohmann
                 {"id", obj.id},
                 {"path", obj.path},
                 {"isFavorite", obj.isFavorite},
+                {"image", obj.image},
                 {"localVolume", obj.localVolume},
                 {"remoteVolume", obj.remoteVolume},
                 {"modifiedDate", obj.modifiedDate},
@@ -71,6 +72,10 @@ namespace nlohmann
             if (j.find("isFavorite") != j.end())
             {
                 j.at("isFavorite").get_to(obj.isFavorite);
+            }
+            if (j.find("image") != j.end())
+            {
+                j.at("image").get_to(obj.image);
             }
             if (j.find("localVolume") != j.end())
             {

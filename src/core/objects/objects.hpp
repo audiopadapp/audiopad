@@ -22,6 +22,7 @@ namespace Audiopad
 
             std::optional<int> localVolume;
             std::optional<int> remoteVolume;
+            std::string image;
         };
 
         struct Tab

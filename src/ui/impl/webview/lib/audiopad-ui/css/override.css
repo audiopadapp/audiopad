@@ -1388,3 +1388,182 @@ body,
 .soundpad-action-mini:hover {
   color: var(--color-primary);
 }
+
+/* --- Sound Card Image Backgrounds & Overlays --- */
+.has-card-image {
+  background-size: cover !important;
+  background-position: center center !important;
+  background-repeat: no-repeat !important;
+  position: relative !important;
+  overflow: hidden !important;
+}
+
+.sound-grid-card.has-card-image {
+  border-color: rgba(255, 255, 255, 0.18) !important;
+}
+
+.soundpad-btn.has-card-image {
+  border-color: rgba(255, 255, 255, 0.18) !important;
+  min-height: 84px;
+}
+
+.card-image-overlay {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(to top, rgba(15, 17, 23, 0.92) 0%, rgba(15, 17, 23, 0.58) 55%, rgba(15, 17, 23, 0.35) 100%);
+  pointer-events: none;
+  border-radius: inherit;
+  z-index: 1;
+  transition: background var(--transition-fast);
+}
+
+.sound-grid-card.has-card-image:hover .card-image-overlay,
+.soundpad-btn.has-card-image:hover .card-image-overlay {
+  background: linear-gradient(to top, rgba(15, 17, 23, 0.96) 0%, rgba(15, 17, 23, 0.45) 55%, rgba(15, 17, 23, 0.2) 100%);
+}
+
+.has-card-image .card-top,
+.has-card-image .card-middle,
+.has-card-image .card-bottom,
+.has-card-image .soundpad-btn-content,
+.has-card-image .soundpad-hover-actions {
+  position: relative;
+  z-index: 2;
+}
+
+.has-card-image .card-sound-name,
+.has-card-image .soundpad-sound-name {
+  color: #ffffff !important;
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.95), 0 2px 8px rgba(0, 0, 0, 0.8) !important;
+  font-weight: 600 !important;
+}
+
+.has-card-image .soundpad-hotkey,
+.has-card-image .hotkey-badge {
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.9) !important;
+}
+
+.has-card-image .action-btn,
+.has-card-image .soundpad-action-mini {
+  background: rgba(15, 17, 23, 0.65);
+  backdrop-filter: blur(6px);
+  border-radius: var(--radius-sm);
+}
+
+.sound-row-avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 6px;
+  background-size: cover;
+  background-position: center;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  flex-shrink: 0;
+}
+
+/* --- Sleek Custom Context Menu --- */
+.custom-context-menu {
+  position: fixed;
+  z-index: 99999;
+  background: var(--bg-surface, rgba(22, 27, 34, 0.95));
+  backdrop-filter: blur(16px);
+  border: 1px solid var(--border-color, rgba(255, 255, 255, 0.14));
+  border-radius: 10px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.55), 0 2px 6px rgba(0, 0, 0, 0.3);
+  padding: 6px;
+  min-width: 210px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  animation: contextMenuFadeIn 0.12s ease-out;
+}
+
+@keyframes contextMenuFadeIn {
+  from { opacity: 0; transform: scale(0.96); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+.context-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 8px 12px;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--color-primary, #ffffff);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.12s ease;
+  user-select: none;
+  border: none;
+  background: transparent;
+  width: 100%;
+  text-align: left;
+  box-sizing: border-box;
+}
+
+.context-menu-item:hover {
+  background: var(--color-accent-light, rgba(59, 130, 246, 0.15));
+  color: var(--color-accent, #3b82f6);
+}
+
+.context-menu-item.danger:hover {
+  background: rgba(239, 68, 68, 0.15);
+  color: #ef4444;
+}
+
+.context-menu-icon {
+  font-size: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+}
+
+.context-menu-divider {
+  height: 1px;
+  background: var(--border-color, rgba(255, 255, 255, 0.08));
+  margin: 4px 6px;
+}
+
+/* --- Multi-Sound Image Assignment Modal --- */
+.multi-image-sound-list {
+  max-height: 220px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  background: rgba(0, 0, 0, 0.2);
+  border: 1px solid var(--border-color, rgba(255, 255, 255, 0.08));
+  border-radius: 8px;
+  padding: 8px;
+  margin: 10px 0;
+}
+
+.multi-image-sound-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background var(--transition-fast);
+}
+
+.multi-image-sound-item:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.multi-image-preview-box {
+  width: 100%;
+  height: 110px;
+  border-radius: 10px;
+  background-size: cover;
+  background-position: center;
+  border: 1px dashed var(--border-color, rgba(255, 255, 255, 0.2));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-muted);
+  font-size: 12px;
+  margin-top: 8px;
+}

@@ -22,7 +22,8 @@ const icons = {
   music: `<svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5l12-2v13"></path><circle cx="6" cy="18" r="3"></circle><circle cx="18" cy="16" r="3"></circle></svg>`,
   list: `<svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="6" x2="21" y2="6"></line><line x1="8" y1="12" x2="21" y2="12"></line><line x1="8" y1="18" x2="21" y2="18"></line><line x1="3" y1="6" x2="3.01" y2="6"></line><line x1="3" y1="12" x2="3.01" y2="12"></line><line x1="3" y1="18" x2="3.01" y2="18"></line></svg>`,
   grid: `<svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg>`,
-  soundpad: `<svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="9" y1="3" x2="9" y2="21"></line><line x1="15" y1="3" x2="15" y2="21"></line><line x1="3" y1="9" x2="21" y2="9"></line><line x1="3" y1="15" x2="21" y2="15"></line></svg>`
+  soundpad: `<svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="9" y1="3" x2="9" y2="21"></line><line x1="15" y1="3" x2="15" y2="21"></line><line x1="3" y1="9" x2="21" y2="9"></line><line x1="3" y1="15" x2="21" y2="15"></line></svg>`,
+  image: `<svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline></svg>`
 };
 
 // --- Application Reactive State ---
@@ -36,6 +37,18 @@ let state = {
   hoveredVolumeSoundId: null,
   isMasterVolumeOpen: false,
   isMasterVolumeHovered: false,
+
+  contextMenu: {
+    visible: false,
+    x: 0,
+    y: 0,
+    soundId: null
+  },
+  multiImageModal: {
+    visible: false,
+    selectedSoundIds: [],
+    imageDataUrl: ''
+  },
   
   recordingHotkeySoundId: null,
   recordedKeys: [],
@@ -175,14 +188,22 @@ async function init() {
     }
   });
 
-  // Click-outside listener to dismiss volume popovers
+  // Click-outside listener to dismiss volume popovers and context menu
   document.addEventListener('click', (e) => {
+    let shouldRender = false;
+    if (state.contextMenu && state.contextMenu.visible && !e.target.closest('.custom-context-menu')) {
+      state.contextMenu.visible = false;
+      shouldRender = true;
+    }
     if (!e.target.closest('.volume-popover-container')) {
       if (state.activeVolumePopoverSoundId !== null || state.isMasterVolumeOpen) {
         state.activeVolumePopoverSoundId = null;
         state.isMasterVolumeOpen = false;
-        renderApp();
+        shouldRender = true;
       }
+    }
+    if (shouldRender) {
+      renderApp();
     }
   });
 
@@ -411,6 +432,186 @@ async function toggleFavorite(soundId, currentFavState) {
     state.tabs = await window.getTabs();
     renderApp();
   }
+}
+
+// --- Sound Image & Context Menu Operations ---
+function handleSoundContextMenu(soundId, event) {
+  if (event) {
+    event.preventDefault();
+    event.stopPropagation();
+  }
+
+  const mouseX = event ? event.clientX : window.innerWidth / 2;
+  const mouseY = event ? event.clientY : window.innerHeight / 2;
+
+  const menuWidth = 230;
+  const menuHeight = 240;
+
+  const x = (mouseX + menuWidth > window.innerWidth) ? Math.max(10, window.innerWidth - menuWidth - 10) : mouseX;
+  const y = (mouseY + menuHeight > window.innerHeight) ? Math.max(10, window.innerHeight - menuHeight - 10) : mouseY;
+
+  state.contextMenu = {
+    visible: true,
+    x,
+    y,
+    soundId
+  };
+  renderApp();
+}
+
+function closeContextMenu() {
+  if (state.contextMenu && state.contextMenu.visible) {
+    state.contextMenu.visible = false;
+    renderApp();
+  }
+}
+
+async function handleAssignSoundImage(soundId) {
+  closeContextMenu();
+  let imageDataUrl = '';
+
+  if (window.pickImageFile) {
+    imageDataUrl = await window.pickImageFile();
+  }
+
+  if (!imageDataUrl && !window.pickImageFile) {
+    imageDataUrl = await new Promise((resolve) => {
+      const input = document.createElement('input');
+      input.type = 'file';
+      input.accept = 'image/*';
+      input.onchange = (e) => {
+        const file = e.target.files && e.target.files[0];
+        if (!file) return resolve('');
+        const reader = new FileReader();
+        reader.onload = (ev) => resolve(ev.target.result);
+        reader.readAsDataURL(file);
+      };
+      input.click();
+    });
+  }
+
+  if (imageDataUrl) {
+    if (window.setSoundImage) {
+      await window.setSoundImage(soundId, imageDataUrl);
+    }
+    for (const tab of state.tabs) {
+      const s = (tab.sounds || []).find(snd => snd.id === soundId);
+      if (s) s.image = imageDataUrl;
+    }
+    showToast("Image background assigned successfully!", "success");
+    renderApp();
+  }
+}
+
+async function handleRemoveSoundImage(soundId) {
+  closeContextMenu();
+  if (window.setSoundImage) {
+    await window.setSoundImage(soundId, "");
+  }
+  for (const tab of state.tabs) {
+    const s = (tab.sounds || []).find(snd => snd.id === soundId);
+    if (s) s.image = "";
+  }
+  showToast("Image background removed", "info");
+  renderApp();
+}
+
+function handleOpenMultiImageModal(initialSoundId = null) {
+  closeContextMenu();
+  const currentTab = state.tabs.find(t => t.id === state.activeTabId) || state.tabs[0];
+  const soundIds = currentTab && currentTab.sounds ? currentTab.sounds.map(s => s.id) : [];
+
+  state.multiImageModal = {
+    visible: true,
+    selectedSoundIds: initialSoundId ? [initialSoundId] : soundIds,
+    imageDataUrl: ''
+  };
+  renderApp();
+}
+
+function handleCloseMultiImageModal() {
+  state.multiImageModal = {
+    visible: false,
+    selectedSoundIds: [],
+    imageDataUrl: ''
+  };
+  renderApp();
+}
+
+function handleToggleSelectSoundForImage(soundId) {
+  const idx = state.multiImageModal.selectedSoundIds.indexOf(soundId);
+  if (idx >= 0) {
+    state.multiImageModal.selectedSoundIds.splice(idx, 1);
+  } else {
+    state.multiImageModal.selectedSoundIds.push(soundId);
+  }
+  renderApp();
+}
+
+function handleSelectAllSoundsForImage(selectAll) {
+  const currentTab = state.tabs.find(t => t.id === state.activeTabId) || state.tabs[0];
+  if (!currentTab || !currentTab.sounds) return;
+
+  if (selectAll) {
+    state.multiImageModal.selectedSoundIds = currentTab.sounds.map(s => s.id);
+  } else {
+    state.multiImageModal.selectedSoundIds = [];
+  }
+  renderApp();
+}
+
+async function handleBrowseMultiImage() {
+  let imageDataUrl = '';
+  if (window.pickImageFile) {
+    imageDataUrl = await window.pickImageFile();
+  }
+  if (!imageDataUrl && !window.pickImageFile) {
+    imageDataUrl = await new Promise((resolve) => {
+      const input = document.createElement('input');
+      input.type = 'file';
+      input.accept = 'image/*';
+      input.onchange = (e) => {
+        const file = e.target.files && e.target.files[0];
+        if (!file) return resolve('');
+        const reader = new FileReader();
+        reader.onload = (ev) => resolve(ev.target.result);
+        reader.readAsDataURL(file);
+      };
+      input.click();
+    });
+  }
+
+  if (imageDataUrl) {
+    state.multiImageModal.imageDataUrl = imageDataUrl;
+    renderApp();
+  }
+}
+
+async function handleApplyMultiSoundImage() {
+  const { selectedSoundIds, imageDataUrl } = state.multiImageModal;
+  if (!imageDataUrl) {
+    showToast("Please select an image first", "error");
+    return;
+  }
+  if (selectedSoundIds.length === 0) {
+    showToast("Please select at least one sound", "error");
+    return;
+  }
+
+  if (window.setSoundsImage) {
+    await window.setSoundsImage(selectedSoundIds, imageDataUrl);
+  }
+
+  for (const tab of state.tabs) {
+    for (const snd of (tab.sounds || [])) {
+      if (selectedSoundIds.includes(snd.id)) {
+        snd.image = imageDataUrl;
+      }
+    }
+  }
+
+  showToast(`Image assigned to ${selectedSoundIds.length} sounds!`, "success");
+  handleCloseMultiImageModal();
 }
 
 let volumeHoverTimeout = null;
@@ -1278,6 +1479,8 @@ function renderApp() {
     
     <!-- Modal Overlays -->
     ${renderModalOverlays()}
+    ${renderContextMenu()}
+    ${renderMultiImageModal()}
     
     <!-- Toast Notifications container -->
     <div class="toast-container" id="toast-container">
@@ -1310,18 +1513,27 @@ function renderViewContent(soundsList, isFolderView, activeTab) {
         <div class="sound-grid">
           ${soundsList.map(sound => {
             const isPlaying = !!state.playingSounds[sound.id];
+            const hasImage = !!sound.image;
             return `
-              <div class="sound-grid-card ${isPlaying ? 'playing' : ''}">
+              <div class="sound-grid-card ${isPlaying ? 'playing' : ''} ${hasImage ? 'has-card-image' : ''}" 
+                   style="${hasImage ? `background-image: url('${sound.image}');` : ''}"
+                   oncontextmenu="handleSoundContextMenu(${sound.id}, event)">
+                ${hasImage ? `<div class="card-image-overlay"></div>` : ''}
                 <div class="card-top" onclick="event.stopPropagation()">
-                  <span class="fav-star ${sound.isFavorite ? 'active' : ''}" onclick="toggleFavorite(${sound.id}, ${sound.isFavorite})">
-                    ★
-                  </span>
+                  <div style="display: flex; align-items: center; gap: 4px;">
+                    <span class="fav-star ${sound.isFavorite ? 'active' : ''}" onclick="toggleFavorite(${sound.id}, ${sound.isFavorite})" title="Favorite">
+                      ★
+                    </span>
+                    <button class="action-btn" style="width: 20px; height: 20px; padding: 2px;" title="${hasImage ? 'Change Image (or RMB)' : 'Assign Image (or RMB)'}" onclick="handleAssignSoundImage(${sound.id})">
+                      ${icons.image}
+                    </button>
+                  </div>
                   <button class="hotkey-badge" onclick="startRecordHotkey(${sound.id})">
                     ${sound.hotkeys && sound.hotkeys.length > 0 ? sound.hotkeySequence : 'Assign'}
                   </button>
                 </div>
                 <div class="card-middle" onclick="handlePlaySound(${sound.id})">
-                  <div class="card-sound-icon">${icons.music}</div>
+                  ${hasImage ? '' : `<div class="card-sound-icon">${icons.music}</div>`}
                   <span class="card-sound-name" title="${sound.name}">${sound.name}</span>
                 </div>
                 <div class="card-bottom" onclick="event.stopPropagation()">
@@ -1386,13 +1598,19 @@ function renderViewContent(soundsList, isFolderView, activeTab) {
         <div class="soundpad-grid">
           ${soundsList.map(sound => {
             const isPlaying = !!state.playingSounds[sound.id];
+            const hasImage = !!sound.image;
             return `
-              <div class="soundpad-btn ${isPlaying ? 'playing' : ''} ${state.activeVolumePopoverSoundId === sound.id || state.hoveredVolumeSoundId === sound.id ? 'has-open-popover' : ''}" onclick="handlePlaySound(${sound.id})">
+              <div class="soundpad-btn ${isPlaying ? 'playing' : ''} ${hasImage ? 'has-card-image' : ''} ${state.activeVolumePopoverSoundId === sound.id || state.hoveredVolumeSoundId === sound.id ? 'has-open-popover' : ''}" 
+                   style="${hasImage ? `background-image: url('${sound.image}');` : ''}"
+                   onclick="handlePlaySound(${sound.id})"
+                   oncontextmenu="handleSoundContextMenu(${sound.id}, event)">
+                ${hasImage ? `<div class="card-image-overlay"></div>` : ''}
                 <div class="soundpad-btn-content">
                   <span class="soundpad-sound-name" title="${sound.name}">${sound.name}</span>
                   <span class="soundpad-hotkey">${sound.hotkeys && sound.hotkeys.length > 0 ? sound.hotkeySequence : ''}</span>
                 </div>
                 <div class="soundpad-hover-actions" onclick="event.stopPropagation()">
+                  <button class="soundpad-action-mini" title="${hasImage ? 'Change Image (or RMB)' : 'Assign Image (or RMB)'}" onclick="handleAssignSoundImage(${sound.id})">${icons.image}</button>
                   <span class="fav-star ${sound.isFavorite ? 'active' : ''}" style="font-size: 11px;" onclick="toggleFavorite(${sound.id}, ${sound.isFavorite})">★</span>
                   <button class="soundpad-action-mini" style="color: var(--color-error);" onclick="handleStopSound(${sound.id})" title="Stop">${icons.stop}</button>
                   
@@ -1457,14 +1675,17 @@ function renderViewContent(soundsList, isFolderView, activeTab) {
               ${soundsList.map(sound => {
                 const isPlaying = !!state.playingSounds[sound.id];
                 return `
-                  <tr class="sound-row ${isPlaying ? 'playing' : ''}">
+                  <tr class="sound-row ${isPlaying ? 'playing' : ''}" oncontextmenu="handleSoundContextMenu(${sound.id}, event)">
                     <td>
                       <span class="fav-star ${sound.isFavorite ? 'active' : ''}" onclick="toggleFavorite(${sound.id}, ${sound.isFavorite})">
                         ★
                       </span>
                     </td>
                     <td>
-                      <div class="sound-name-wrapper">
+                      <div class="sound-name-wrapper" style="display: flex; align-items: center; gap: 10px;">
+                        ${sound.image ? `
+                          <div class="sound-row-avatar" style="background-image: url('${sound.image}');" title="Assigned image (Right-click to change)"></div>
+                        ` : ''}
                         <span class="sound-name-text">${sound.name}</span>
                       </div>
                     </td>
@@ -1475,6 +1696,9 @@ function renderViewContent(soundsList, isFolderView, activeTab) {
                     </td>
                     <td>
                       <div class="action-buttons">
+                        <button class="action-btn" title="${sound.image ? 'Change Image' : 'Assign Image'}" onclick="handleAssignSoundImage(${sound.id})">
+                          ${icons.image}
+                        </button>
                         <button class="action-btn play-btn" title="Play Sound" onclick="handlePlaySound(${sound.id})">
                           ${icons.play}
                         </button>
@@ -2023,6 +2247,143 @@ function renderModalOverlays() {
     `;
   }
   return '';
+}
+
+// Render sleek custom right-click context menu
+function renderContextMenu() {
+  if (!state.contextMenu || !state.contextMenu.visible) return '';
+
+  const { x, y, soundId } = state.contextMenu;
+  let targetSound = null;
+  for (const tab of state.tabs) {
+    const s = (tab.sounds || []).find(snd => snd.id === soundId);
+    if (s) {
+      targetSound = s;
+      break;
+    }
+  }
+  if (!targetSound) return '';
+
+  const isPlaying = !!state.playingSounds[soundId];
+  const hasImage = !!targetSound.image;
+
+  return `
+    <div class="custom-context-menu" style="left: ${x}px; top: ${y}px;" onclick="event.stopPropagation()">
+      <div style="padding: 4px 8px 6px 8px; font-size: 11px; font-weight: 700; color: var(--color-muted); text-transform: uppercase; letter-spacing: 0.05em; border-bottom: 1px solid var(--border-color); margin-bottom: 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+        ${targetSound.name}
+      </div>
+
+      <button class="context-menu-item" onclick="closeContextMenu(); handlePlaySound(${soundId})">
+        <span class="context-menu-icon">${isPlaying ? icons.stop : icons.play}</span>
+        <span>${isPlaying ? 'Restart Sound' : 'Play Sound'}</span>
+      </button>
+
+      ${isPlaying ? `
+        <button class="context-menu-item danger" onclick="closeContextMenu(); handleStopSound(${soundId})">
+          <span class="context-menu-icon">${icons.stop}</span>
+          <span>Stop Sound</span>
+        </button>
+      ` : ''}
+
+      <div class="context-menu-divider"></div>
+
+      <button class="context-menu-item" onclick="handleAssignSoundImage(${soundId})">
+        <span class="context-menu-icon">${icons.image}</span>
+        <span>${hasImage ? 'Change Image...' : 'Assign Image...'}</span>
+      </button>
+
+      <button class="context-menu-item" onclick="handleOpenMultiImageModal(${soundId})">
+        <span class="context-menu-icon">📑</span>
+        <span>Assign Image to Multiple...</span>
+      </button>
+
+      ${hasImage ? `
+        <button class="context-menu-item danger" onclick="handleRemoveSoundImage(${soundId})">
+          <span class="context-menu-icon">${icons.trash}</span>
+          <span>Remove Image</span>
+        </button>
+      ` : ''}
+
+      <div class="context-menu-divider"></div>
+
+      <button class="context-menu-item" onclick="closeContextMenu(); toggleFavorite(${soundId}, ${targetSound.isFavorite})">
+        <span class="context-menu-icon">${targetSound.isFavorite ? '★' : '☆'}</span>
+        <span>${targetSound.isFavorite ? 'Remove from Favorites' : 'Add to Favorites'}</span>
+      </button>
+
+      <button class="context-menu-item" onclick="closeContextMenu(); startRecordHotkey(${soundId})">
+        <span class="context-menu-icon">⌨️</span>
+        <span>Assign Hotkey</span>
+      </button>
+    </div>
+  `;
+}
+
+// Render multi-sound image assignment modal
+function renderMultiImageModal() {
+  if (!state.multiImageModal || !state.multiImageModal.visible) return '';
+
+  const currentTab = state.tabs.find(t => t.id === state.activeTabId) || state.tabs[0];
+  const sounds = currentTab ? (currentTab.sounds || []) : [];
+  const { selectedSoundIds, imageDataUrl } = state.multiImageModal;
+
+  return `
+    <div class="modal-overlay" onclick="handleCloseMultiImageModal()">
+      <div class="modal-card" style="max-width: 480px; width: 100%;" onclick="event.stopPropagation()">
+        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;">
+          <h3 style="margin: 0; font-size: 16px; font-weight: 700; color: var(--color-primary);">Assign Image to Multiple Sounds</h3>
+          <button class="action-btn" onclick="handleCloseMultiImageModal()">${icons.close}</button>
+        </div>
+
+        <p style="font-size: 12px; color: var(--color-muted); margin: 0 0 12px 0;">
+          Select the sounds in this folder to apply the image to:
+        </p>
+
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+          <span style="font-size: 11px; font-weight: 600; color: var(--color-muted);">${selectedSoundIds.length} of ${sounds.length} selected</span>
+          <div style="display: flex; gap: 8px;">
+            <button style="background: none; border: none; font-size: 11px; color: var(--color-accent); cursor: pointer;" onclick="handleSelectAllSoundsForImage(true)">Select All</button>
+            <button style="background: none; border: none; font-size: 11px; color: var(--color-muted); cursor: pointer;" onclick="handleSelectAllSoundsForImage(false)">Clear</button>
+          </div>
+        </div>
+
+        <div class="multi-image-sound-list">
+          ${sounds.map(s => {
+            const isChecked = selectedSoundIds.includes(s.id);
+            return `
+              <div class="multi-image-sound-item" onclick="handleToggleSelectSoundForImage(${s.id})">
+                <input type="checkbox" ${isChecked ? 'checked' : ''} onclick="event.stopPropagation(); handleToggleSelectSoundForImage(${s.id})">
+                ${s.image ? `
+                  <div style="width: 22px; height: 22px; border-radius: 4px; background-image: url('${s.image}'); background-size: cover; background-position: center; border: 1px solid rgba(255,255,255,0.15); flex-shrink: 0;"></div>
+                ` : `
+                  <div style="width: 22px; height: 22px; border-radius: 4px; background: rgba(255,255,255,0.05); display: flex; align-items: center; justify-content: center; font-size: 10px; color: var(--color-muted); flex-shrink: 0;">🎵</div>
+                `}
+                <span style="font-size: 12px; color: var(--color-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex-grow: 1;">${s.name}</span>
+              </div>
+            `;
+          }).join('')}
+        </div>
+
+        <!-- Image Selector & Preview -->
+        <div style="margin-top: 14px;">
+          <button class="btn-primary" style="width: 100%; display: flex; align-items: center; justify-content: center; gap: 8px; padding: 10px;" onclick="handleBrowseMultiImage()">
+            ${icons.image} <span>${imageDataUrl ? 'Change Selected Image...' : 'Choose Image File...'}</span>
+          </button>
+
+          ${imageDataUrl ? `
+            <div class="multi-image-preview-box" style="background-image: url('${imageDataUrl}'); border-style: solid; border-color: var(--color-accent);"></div>
+          ` : `
+            <div class="multi-image-preview-box">No image selected yet</div>
+          `}
+        </div>
+
+        <div class="modal-actions" style="margin-top: 16px;">
+          <button class="modal-btn save-btn" onclick="handleApplyMultiSoundImage()" ${!imageDataUrl || selectedSoundIds.length === 0 ? 'disabled style="opacity: 0.5; cursor: not-allowed;"' : ''}>Apply Image</button>
+          <button class="modal-btn cancel-btn" onclick="handleCloseMultiImageModal()">Cancel</button>
+        </div>
+      </div>
+    </div>
+  `;
 }
 
 // Run initial execution

@@ -88,6 +88,7 @@ namespace Audiopad::Objects
                     sound.isFavorite = oldSound->isFavorite;
                     sound.localVolume = oldSound->localVolume;
                     sound.remoteVolume = oldSound->remoteVolume;
+                    sound.image = oldSound->image;
                 }
                 else
                 {
