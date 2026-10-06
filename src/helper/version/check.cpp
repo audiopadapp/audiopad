@@ -28,7 +28,7 @@ std::optional<Audiopad::Objects::VersionStatus> VersionCheck::getStatus()
 
                     return Audiopad::Objects::VersionStatus{AUDIOPAD_VERSION, latestTagStr, remote > local};
                 }
-                catch (const std::exception &e)
+                catch (const std::exception &)
                 {
                     Fancy::fancy.logTime().warning() << "Could not fetch version" << std::endl;
                 }

@@ -73,7 +73,7 @@ int main(int argc, char **arguments)
 
     if (std::find(args.begin(), args.end(), "--reset-mutex") != args.end())
     {
-        gGuard->reset();
+        (void)gGuard->reset();
         gGuard.reset();
         gGuard = std::make_shared<guardpp::guard>("audiopad-guard");
     }

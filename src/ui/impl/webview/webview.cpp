@@ -26,6 +26,15 @@ namespace Audiopad::Objects
     {
         Window::setup();
 
+        if (Audiopad::Globals::gData.width < 1440)
+        {
+            Audiopad::Globals::gData.width = 1440;
+        }
+        if (Audiopad::Globals::gData.height < 820)
+        {
+            Audiopad::Globals::gData.height = 820;
+        }
+
         webview =
             std::make_shared<Webview::Window>("Audiopad", Audiopad::Globals::gData.width, Audiopad::Globals::gData.height);
         webview->setTitle("Audiopad");
@@ -65,7 +74,7 @@ namespace Audiopad::Objects
         fetchTranslations();
 
         webview->setCloseCallback([this]() { return onClose(); });
-        webview->setResizeCallback([this](int width, int height) { onResize(width, height); });
+        webview->setResizeCallback([this](std::size_t width, std::size_t height) { onResize(width, height); });
 
 #if defined(IS_EMBEDDED)
 #if defined(__linux__)
@@ -374,10 +383,10 @@ namespace Audiopad::Objects
         }
         return false;
     }
-    void WebView::onResize(int width, int height)
+    void WebView::onResize(std::size_t width, std::size_t height)
     {
-        Globals::gData.width = width;
-        Globals::gData.height = height;
+        Globals::gData.width = static_cast<int>(width);
+        Globals::gData.height = static_cast<int>(height);
     }
     void WebView::fetchTranslations()
     {

@@ -70,7 +70,7 @@ namespace Audiopad::Objects
                 {
                     for (const auto &key : keysToPress)
                     {
-                        keybd_event(key, 0, 1, 0);
+                        keybd_event(static_cast<BYTE>(key), 0, 1, 0);
                         std::this_thread::sleep_for(std::chrono::milliseconds(10));
                     }
                 }
@@ -146,13 +146,13 @@ namespace Audiopad::Objects
         shouldPressKeys = true;
     }
 
-    void Hotkeys::releaseKeys([[maybe_unused]] const std::vector<int> &keys)
+    void Hotkeys::releaseKeys(const std::vector<int> &keys)
     {
         shouldPressKeys = false;
         keysToPress.clear();
         for (const auto &key : keys)
         {
-            keybd_event(key, 0, 2, 0);
+            keybd_event(static_cast<BYTE>(key), 0, 2, 0);
         }
     }
 } // namespace Audiopad::Objects
