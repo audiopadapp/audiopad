@@ -1,6 +1,7 @@
 #if defined(_WIN32)
 #include <core/windows/window.hpp>
 #include <cstdlib>
+#include <filesystem>
 #include <stdexcept>
 
 #if defined(WEBVIEWPP_WINDOWS_8)
@@ -68,8 +69,24 @@ Webview::Window::Window(std::string identifier, std::size_t width, std::size_t h
     std::size_t bufferLength = 0;
     _dupenv_s(&buffer, &bufferLength, "LOCALAPPDATA");
 
-    std::string appdata(buffer, bufferLength);
-    appdata += "\\MicrosoftEdge";
+    std::string appdata;
+    if (buffer)
+    {
+        appdata = std::string(buffer) + "\\Audiopad\\WebView2";
+        free(buffer);
+    }
+    else
+    {
+        appdata = "Audiopad.WebView2";
+    }
+
+    try
+    {
+        std::filesystem::create_directories(appdata);
+    }
+    catch (...)
+    {
+    }
 
     if (FAILED(createEnvironment(appdata)))
     {
@@ -130,14 +147,25 @@ HRESULT Webview::Window::Window::createEnvironment(const std::string &appdata)
             [this](auto res, ICoreWebView2Environment *env) -> HRESULT {
                 if (FAILED(res))
                 {
+                    char errMsg[300];
+                    snprintf(errMsg, sizeof(errMsg),
+                             "Failed to initialize WebView2 environment (HRESULT: 0x%08lX).\n"
+                             "Please ensure Microsoft Edge WebView2 Runtime is installed.",
+                             static_cast<unsigned long>(res));
+                    MessageBoxA(hwnd, errMsg, "Audiopad - WebView2 Error", MB_ICONERROR | MB_OK);
                     return res;
                 }
 
                 return env->CreateCoreWebView2Controller(
                     hwnd, Microsoft::WRL::Callback<ICoreWebView2CreateCoreWebView2ControllerCompletedHandler>(
-                              [&](auto result, ICoreWebView2Controller *controller) {
+                              [this](auto result, ICoreWebView2Controller *controller) {
                                   if (FAILED(result))
                                   {
+                                      char errMsg[300];
+                                      snprintf(errMsg, sizeof(errMsg),
+                                               "Failed to create WebView2 controller (HRESULT: 0x%08lX).",
+                                               static_cast<unsigned long>(result));
+                                      MessageBoxA(hwnd, errMsg, "Audiopad - WebView2 Error", MB_ICONERROR | MB_OK);
                                       return result;
                                   }
                                   return onControllerCreated(controller);
@@ -156,6 +184,10 @@ HRESULT Webview::Window::Window::onControllerCreated(ICoreWebView2Controller *co
 
     webViewController = controller;
     webViewController->get_CoreWebView2(&webViewWindow);
+
+    RECT rc;
+    GetClientRect(hwnd, &rc);
+    webViewController->put_Bounds(rc);
 
     EventRegistrationToken navigationCompleted;
     webViewWindow->add_NavigationCompleted(
