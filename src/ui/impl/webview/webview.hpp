@@ -15,7 +15,7 @@ namespace Audiopad
 
             bool onClose();
             void exposeFunctions();
-            void onResize(int, int);
+            void onResize(std::size_t, std::size_t);
 
             void setupTray();
             void fetchTranslations();

@@ -175,16 +175,16 @@ namespace Audiopad::Objects
                 {
                     if (entry.is_directory())
                     {
-                        auto path = entry.path().u8string();
-                        std::transform(path.begin(), path.end(), path.begin(),
+                        auto entryPath = entry.path().u8string();
+                        std::transform(entryPath.begin(), entryPath.end(), entryPath.begin(),
                                        [](char c) { return c == '\\' ? '/' : c; });
 
-                        const std::filesystem::path &subFolder(path);
+                        const std::filesystem::path subFolder(entryPath);
 
-                        if (!subFolder.empty() && !Globals::gData.doesTabExist(path))
+                        if (!subFolder.empty() && !Globals::gData.doesTabExist(entryPath))
                         {
                             Tab subFolderTab;
-                            subFolderTab.path = path;
+                            subFolderTab.path = entryPath;
                             subFolderTab.sounds = getTabContent(subFolderTab);
                             subFolderTab.name = subFolder.filename().u8string();
 

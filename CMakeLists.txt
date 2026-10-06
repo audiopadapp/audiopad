@@ -1,5 +1,4 @@
-cmake_minimum_required(VERSION 3.5)
-set(CMAKE_POLICY_VERSION_MINIMUM 3.5)
+cmake_minimum_required(VERSION 3.16...3.30)
 project(audiopad VERSION 1.0.1 DESCRIPTION "A crossplatform soundboard")
 
 set(FULL_VERSION_STRING "1.0.1")
@@ -112,6 +111,13 @@ if (${EMBED_PATH} STREQUAL "OFF")
             DESTINATION "${CMAKE_SOURCE_DIR}/build/Debug/dist")
         file(COPY "${CMAKE_SOURCE_DIR}/src/ui/impl/webview/lib/audiopad-ui/" 
             DESTINATION "${CMAKE_SOURCE_DIR}/build/RelWithDebInfo/dist")
+
+        add_custom_command(TARGET audiopad POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_directory
+                "${CMAKE_SOURCE_DIR}/src/ui/impl/webview/lib/audiopad-ui"
+                "$<TARGET_FILE_DIR:audiopad>/dist"
+            COMMENT "Synchronizing frontend assets to target directory"
+        )
     else()
         file(COPY "${CMAKE_SOURCE_DIR}/src/ui/impl/webview/lib/audiopad-ui/" 
             DESTINATION "${CMAKE_SOURCE_DIR}/build/dist")
@@ -132,7 +138,7 @@ set_target_properties(audiopad PROPERTIES VERSION ${PROJECT_VERSION})
 set_target_properties(audiopad PROPERTIES PROJECT_NAME ${PROJECT_NAME})
 
 if (MSVC)
-    set_target_properties(audiopad PROPERTIES LINK_FLAGS "/MANIFESTUAC:\"level='requireAdministrator' uiAccess='false'\"")
+    set_target_properties(audiopad PROPERTIES LINK_FLAGS "/MANIFESTUAC:\"level='requireAdministrator' uiAccess='false'\" /IGNORE:4098")
 endif()
 
 

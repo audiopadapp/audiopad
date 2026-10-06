@@ -73,7 +73,7 @@ int main(int argc, char **arguments)
 
     if (std::find(args.begin(), args.end(), "--reset-mutex") != args.end())
     {
-        gGuard->reset();
+        (void)gGuard->reset();
         gGuard.reset();
         gGuard = std::make_shared<guardpp::guard>("audiopad-guard");
     }
@@ -81,6 +81,13 @@ int main(int argc, char **arguments)
     if (auto other_instance = gGuard->other_instance(); other_instance.has_value() && other_instance.value())
     {
         Fancy::fancy.logTime().failure() << "Another Instance is already running!" << std::endl;
+#if defined(_WIN32)
+        MessageBoxA(nullptr,
+                    "Another instance of Audiopad is already running in the background or system tray.\n\n"
+                    "If the window is not visible, check your taskbar tray icons (bottom-right near clock) "
+                    "or terminate audiopad.exe in Task Manager.",
+                    "Audiopad", MB_ICONINFORMATION | MB_OK);
+#endif
         return 1;
     }
     else if (!other_instance.has_value()) // NOLINT

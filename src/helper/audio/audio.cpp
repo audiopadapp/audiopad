@@ -45,7 +45,7 @@ namespace Audiopad::Objects
     std::optional<PlayingSound> Audio::play(const Objects::Sound &sound,
                                             const std::optional<Objects::AudioDevice> &playbackDevice)
     {
-        static std::atomic<std::uint64_t> id = 0;
+        static std::atomic<std::uint32_t> id = 0;
 
         auto *decoder = new ma_decoder;
 #if defined(_WIN32)

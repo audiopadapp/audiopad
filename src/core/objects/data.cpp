@@ -6,7 +6,7 @@ namespace Audiopad::Objects
 {
     Tab Data::addTab(Tab tab)
     {
-        tab.id = tabs.size();
+        tab.id = static_cast<std::uint32_t>(tabs.size());
         tabs.emplace_back(tab);
 
         for (auto &sound : tabs.back().sounds)
@@ -38,7 +38,7 @@ namespace Audiopad::Objects
 
             for (std::size_t i = 0; tabs.size() > i; i++)
             {
-                tabs.at(i).id = i;
+                tabs.at(i).id = static_cast<std::uint32_t>(i);
             }
         }
         else
@@ -54,7 +54,7 @@ namespace Audiopad::Objects
         for (std::size_t i = 0; tabs.size() > i; i++)
         {
             auto &tab = tabs.at(i);
-            tab.id = i;
+            tab.id = static_cast<std::uint32_t>(i);
 
             for (auto &sound : tab.sounds)
             {
@@ -135,7 +135,7 @@ namespace Audiopad::Objects
         for (std::size_t i = 0; tabs.size() > i; i++)
         {
             auto &tab = tabs.at(i);
-            tab.id = i;
+            tab.id = static_cast<std::uint32_t>(i);
 
             for (auto &sound : tab.sounds)
             {

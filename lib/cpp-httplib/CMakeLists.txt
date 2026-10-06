@@ -75,7 +75,7 @@ endif()
 # execute_process can fail silenty, so check for an error
 # if there was an error, just use the user agent as a version
 if(_git_tag_error OR NOT Git_FOUND)
-	message(WARNING "cpp-httplib failed to find the latest Git tag, falling back to using user agent as the version.")
+	message(STATUS "cpp-httplib: using user agent fallback for version.")
 	# Get the user agent and use it as a version
 	# This gets the string with the user agent from the header.
 	# This is so the maintainer doesn't actually need to update this manually.
