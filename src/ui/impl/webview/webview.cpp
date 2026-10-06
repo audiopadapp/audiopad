@@ -494,7 +494,21 @@ namespace Audiopad::Objects
     Settings WebView::changeSettings(Settings newSettings)
     {
         auto rtn = Window::changeSettings(newSettings);
-        tray->update();
+        if (tray)
+        {
+            try
+            {
+                tray->update();
+            }
+            catch (const std::exception &e)
+            {
+                Fancy::fancy.logTime().warning() << "Failed to update tray: " << e.what() << std::endl;
+            }
+            catch (...)
+            {
+                Fancy::fancy.logTime().warning() << "Failed to update tray" << std::endl;
+            }
+        }
 
         return rtn;
     }
@@ -507,6 +521,7 @@ namespace Audiopad::Objects
     {
         Window::onAllSoundsFinished();
         webview->callFunction<void>(Webview::JavaScriptFunction("window.getStore().commit", "clearCurrentlyPlaying"));
+        webview->callFunction<void>(Webview::JavaScriptFunction("window.onAllSoundsFinished"));
     }
     void WebView::onSwitchOnConnectDetected(bool state)
     {
