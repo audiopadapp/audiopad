@@ -1,5 +1,4 @@
-cmake_minimum_required(VERSION 3.5)
-set(CMAKE_POLICY_VERSION_MINIMUM 3.5)
+cmake_minimum_required(VERSION 3.16...3.30)
 project(audiopad VERSION 1.0.1 DESCRIPTION "A crossplatform soundboard")
 
 set(FULL_VERSION_STRING "1.0.1")
@@ -139,7 +138,7 @@ set_target_properties(audiopad PROPERTIES VERSION ${PROJECT_VERSION})
 set_target_properties(audiopad PROPERTIES PROJECT_NAME ${PROJECT_NAME})
 
 if (MSVC)
-    set_target_properties(audiopad PROPERTIES LINK_FLAGS "/MANIFESTUAC:\"level='requireAdministrator' uiAccess='false'\"")
+    set_target_properties(audiopad PROPERTIES LINK_FLAGS "/MANIFESTUAC:\"level='requireAdministrator' uiAccess='false'\" /IGNORE:4098")
 endif()
 
 
