@@ -1,4 +1,5 @@
 #include "audio.hpp"
+#include <algorithm>
 #include <chrono>
 #include <core/global/globals.hpp>
 #include <fancy.hpp>
@@ -244,16 +245,36 @@ namespace Audiopad::Objects
                                          << std::endl;
         return false;
     }
+    namespace
+    {
+        std::shared_ptr<PlayingSound> findPlayingSound(
+            const std::map<std::uint32_t, std::shared_ptr<PlayingSound>> &sounds, std::uint32_t soundId)
+        {
+            auto it = sounds.find(soundId);
+            if (it != sounds.end())
+            {
+                return it->second;
+            }
+            for (const auto &pair : sounds)
+            {
+                if (pair.second && pair.second->sound.id == soundId)
+                {
+                    return pair.second;
+                }
+            }
+            return nullptr;
+        }
+    }
+
     std::optional<PlayingSound> Audio::pause(const std::uint32_t &soundId)
     {
         auto scoped = playingSounds.scoped();
-        if (scoped->find(soundId) != scoped->end())
+        auto sound = findPlayingSound(*scoped, soundId);
+        if (sound)
         {
-            auto &sound = scoped->at(soundId);
-
             if (!sound->paused)
             {
-                if (ma_device_get_state(sound->raw.device) == ma_device_state_started)
+                if (sound->raw.device && ma_device_get_state(sound->raw.device) == ma_device_state_started)
                 {
                     ma_device_stop(sound->raw.device);
                 }
@@ -270,11 +291,10 @@ namespace Audiopad::Objects
     std::optional<PlayingSound> Audio::repeat(const std::uint32_t &soundId, bool shouldRepeat)
     {
         auto scoped = playingSounds.scoped();
-        if (scoped->find(soundId) != scoped->end())
+        auto sound = findPlayingSound(*scoped, soundId);
+        if (sound)
         {
-            auto &sound = scoped->at(soundId);
             sound->repeat = shouldRepeat;
-
             return *sound;
         }
 
@@ -285,13 +305,12 @@ namespace Audiopad::Objects
     std::optional<PlayingSound> Audio::resume(const std::uint32_t &soundId)
     {
         auto scoped = playingSounds.scoped();
-        if (scoped->find(soundId) != scoped->end())
+        auto sound = findPlayingSound(*scoped, soundId);
+        if (sound)
         {
-            auto &sound = scoped->at(soundId);
-
             if (sound->paused)
             {
-                if (ma_device_get_state(sound->raw.device) == ma_device_state_stopped)
+                if (sound->raw.device && ma_device_get_state(sound->raw.device) == ma_device_state_stopped)
                 {
                     ma_device_start(sound->raw.device);
                 }
@@ -333,13 +352,20 @@ namespace Audiopad::Objects
         sound->readFrames += frames;
         sound->buffer += frames;
 
-        if (sound->buffer > (sound->sampleRate / 2))
+        // Emit updates roughly every 100ms for smooth progress tracking
+        if (sound->buffer >= (sound->sampleRate / 10))
         {
-            sound->readInMs = static_cast<std::uint64_t>(
-                (static_cast<double>(sound->readFrames) / static_cast<double>(sound->length)) *
-                static_cast<double>(sound->lengthInMs));
+            if (sound->length > 0)
+            {
+                sound->readInMs = static_cast<std::uint64_t>(
+                    (static_cast<double>(sound->readFrames) / static_cast<double>(sound->length)) *
+                    static_cast<double>(sound->lengthInMs));
+            }
 
-            Globals::gGui->onSoundProgressed(*sound);
+            if (Globals::gGui)
+            {
+                Globals::gGui->onSoundProgressed(*sound);
+            }
 
             sound->buffer = 0;
         }
@@ -348,26 +374,63 @@ namespace Audiopad::Objects
     {
         sound->shouldSeek = false;
         sound->readFrames = frame;
-        sound->readInMs = static_cast<std::uint64_t>((static_cast<double>(frame) / static_cast<double>(sound->length)) *
-                                                     static_cast<double>(sound->lengthInMs));
+        if (sound->length > 0)
+        {
+            sound->readInMs = static_cast<std::uint64_t>((static_cast<double>(frame) / static_cast<double>(sound->length)) *
+                                                         static_cast<double>(sound->lengthInMs));
+        }
+        else
+        {
+            sound->readInMs = 0;
+        }
+        sound->buffer = 0;
+
+        if (Globals::gGui && sound->playbackDevice.isDefault)
+        {
+            Globals::gGui->onSoundProgressed(*sound);
+        }
     }
     std::optional<PlayingSound> Audio::seek(const std::uint32_t &soundId, std::uint64_t position)
     {
         auto scoped = playingSounds.scoped();
-        if (scoped->find(soundId) != scoped->end())
+        auto sound = findPlayingSound(*scoped, soundId);
+        if (sound)
         {
-            auto &sound = scoped->at(soundId);
-            sound->seekTo =
-                static_cast<std::uint64_t>((static_cast<double>(position) / static_cast<double>(sound->lengthInMs)) *
-                                           static_cast<double>(sound->length));
-            sound->shouldSeek = true;
+            if (sound->lengthInMs > 0)
+            {
+                sound->seekTo =
+                    static_cast<std::uint64_t>((static_cast<double>(position) / static_cast<double>(sound->lengthInMs)) *
+                                               static_cast<double>(sound->length));
+            }
+            else
+            {
+                sound->seekTo = 0;
+            }
+
+            if (sound->seekTo > sound->length)
+            {
+                sound->seekTo = sound->length;
+            }
+
+            if (sound->paused.load())
+            {
+                // When paused, audio device thread is stopped.
+                // Seek decoder directly and immediately so position is preserved!
+                if (sound->raw.decoder)
+                {
+                    ma_decoder_seek_to_pcm_frame(sound->raw.decoder, sound->seekTo);
+                }
+                onSoundSeeked(sound.get(), sound->seekTo);
+            }
+            else
+            {
+                // When playing, flag for audio thread to seek before reading next PCM frames
+                sound->shouldSeek = true;
+            }
 
             auto rtn = *sound;
-            rtn.readFrames = rtn.seekTo;
-            rtn.readInMs =
-                static_cast<std::uint64_t>((static_cast<double>(rtn.seekTo) / static_cast<double>(rtn.length)) *
-                                           static_cast<double>(rtn.lengthInMs));
-
+            rtn.readFrames = sound->seekTo;
+            rtn.readInMs = position;
             return rtn;
         }
 
@@ -389,6 +452,13 @@ namespace Audiopad::Objects
             return;
         }
 
+        // Apply pending seek BEFORE reading new frames to prevent reading/playing stale audio!
+        if (sound->shouldSeek)
+        {
+            ma_decoder_seek_to_pcm_frame(sound->raw.decoder, sound->seekTo);
+            Globals::gAudio.onSoundSeeked(sound, sound->seekTo);
+        }
+
         ma_uint64 readFrames{};
         ma_decoder_read_pcm_frames(sound->raw.decoder, output, frameCount, &readFrames);
 
@@ -403,17 +473,12 @@ namespace Audiopad::Objects
             }
         }
 
-        if (sound->shouldSeek)
-        {
-            ma_decoder_seek_to_pcm_frame(sound->raw.decoder, sound->seekTo);
-            Globals::gAudio.onSoundSeeked(sound, sound->seekTo);
-        }
         if (sound->playbackDevice.isDefault && readFrames > 0)
         {
             Globals::gAudio.onSoundProgressed(sound, readFrames);
         }
 
-        if (readFrames <= 0)
+        if (readFrames <= 0 && !sound->shouldSeek)
         {
             if (sound->repeat)
             {

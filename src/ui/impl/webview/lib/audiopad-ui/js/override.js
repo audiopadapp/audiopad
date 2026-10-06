@@ -4,7 +4,6 @@ const icons = {
   folder: `<svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>`,
   folderOpen: `<svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path><path d="M2 10h20"></path></svg>`,
   favorites: `<svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon></svg>`,
-  downloader: `<svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>`,
   settings: `<svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>`,
   systemInfo: `<svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="8" rx="2" ry="2"></rect><rect x="2" y="14" width="20" height="8" rx="2" ry="2"></rect><line x1="6" y1="6" x2="6.01" y2="6"></line><line x1="6" y1="18" x2="6.01" y2="18"></line></svg>`,
   help: `<svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>`,
@@ -37,7 +36,7 @@ const icons = {
 let state = {
   tabs: [],
   activeTabId: null,
-  currentView: 'folder', // 'folder', 'favorites', 'downloader', 'settings', 'system-info', 'help'
+  currentView: 'folder', // 'folder', 'favorites', 'settings', 'system-info', 'help'
   searchQuery: '',
   listViewMode: 'deck', // 'deck' (Stream Deck Macro Tiles), 'table' (High-density Table), 'grid' (Media Grid)
   activeVolumePopoverSoundId: null,
@@ -91,17 +90,10 @@ let state = {
   selectedMic: null,
   systemInfo: '',
   
-  downloader: {
-    url: '',
-    progress: 0,
-    eta: '',
-    isDownloading: false,
-    status: '',
-    error: null,
-    isYoutubeDLAvailable: false
-  },
-  
   playingSounds: {}, // Maps sound.id -> PlayingSound details
+  currentPlayingSoundId: null,
+  isDraggingSeekbar: false,
+  dragSeekPosition: 0,
   toasts: []
 };
 
@@ -255,6 +247,11 @@ async function init() {
       }
     });
 
+    // Window blur listener to release any drag lock immediately
+    window.addEventListener('blur', () => {
+      cleanupScrubberDrag();
+    });
+
     // Click-outside listener to dismiss volume popovers and context menu
     document.addEventListener('click', (e) => {
       let shouldRender = false;
@@ -345,29 +342,48 @@ function toggleTheme() {
 // Binds custom triggers called by C++ Webview shell
 function bindCppCallbacks() {
   window.onSoundPlayed = function(playingSound) {
+    if (!playingSound || !playingSound.sound) return;
+    if (!state.settings.allowOverlapping) {
+      state.playingSounds = {};
+    }
     state.playingSounds[playingSound.sound.id] = playingSound;
+    state.currentPlayingSoundId = playingSound.sound.id;
+    cleanupScrubberDrag();
     renderApp();
   };
 
   window.updateSound = function(playingSound) {
+    if (!playingSound || !playingSound.sound) return;
     state.playingSounds[playingSound.sound.id] = playingSound;
+    if (state.currentPlayingSoundId === null || state.currentPlayingSoundId === undefined) {
+      state.currentPlayingSoundId = playingSound.sound.id;
+    }
     updatePlaybackDockInPlace(playingSound);
   };
 
   window.finishSound = function(playingSound) {
-    delete state.playingSounds[playingSound.sound.id];
+    if (playingSound && playingSound.sound) {
+      delete state.playingSounds[playingSound.sound.id];
+      const tileProgress = document.getElementById(`deck-progress-${playingSound.sound.id}`);
+      if (tileProgress) {
+        tileProgress.style.width = '0%';
+      }
+    }
+    if (playingSound && playingSound.id) {
+      delete state.playingSounds[playingSound.id];
+    }
+    if (state.currentPlayingSoundId === (playingSound && playingSound.sound ? playingSound.sound.id : null)) {
+      const remainingIds = Object.keys(state.playingSounds);
+      state.currentPlayingSoundId = remainingIds.length > 0 ? remainingIds[remainingIds.length - 1] : null;
+    }
+    cleanupScrubberDrag();
     renderApp();
   };
 
-  window.downloadProgressed = function(progress, eta) {
-    state.downloader.progress = progress;
-    state.downloader.eta = eta;
-    state.downloader.isDownloading = true;
-    if (progress >= 100) {
-      state.downloader.status = 'Converting...';
-    } else {
-      state.downloader.status = `Downloading: ${progress.toFixed(1)}%`;
-    }
+  window.onAllSoundsFinished = function() {
+    state.playingSounds = {};
+    state.currentPlayingSoundId = null;
+    cleanupScrubberDrag();
     renderApp();
   };
 
@@ -384,9 +400,6 @@ function bindCppCallbacks() {
       8: "Tab category does not exist",
       9: "Failed to register hotkey",
       10: "Failed to start audio passthrough",
-      25: "YouTube-DL binaries not found",
-      26: "Invalid YouTube-DL video URL",
-      27: "Failed to parse metadata",
       29: "Failed to delete file",
       31: "Failed to adjust custom volume"
     };
@@ -427,8 +440,6 @@ function changeView(view, tabId = null) {
     loadSettingsAssets();
   } else if (view === 'system-info') {
     loadSystemInfo();
-  } else if (view === 'downloader') {
-    checkYoutubeDLAvailability();
   }
   
   renderApp();
@@ -473,39 +484,60 @@ async function loadSystemInfo() {
   }
 }
 
-async function checkYoutubeDLAvailability() {
-  if (window.isYoutubeDLAvailable) {
-    state.downloader.isYoutubeDLAvailable = await window.isYoutubeDLAvailable();
-    renderApp();
-  }
-}
-
 // --- Actions Dispatchers ---
 async function handlePlaySound(soundId) {
   if (window.playSound) {
-    await window.playSound(soundId);
+    try {
+      const playingSound = await window.playSound(soundId);
+      if (playingSound && playingSound.sound) {
+        if (!state.settings.allowOverlapping) {
+          state.playingSounds = {};
+        }
+        state.playingSounds[playingSound.sound.id] = playingSound;
+        state.currentPlayingSoundId = playingSound.sound.id;
+        cleanupScrubberDrag();
+        renderApp();
+      }
+    } catch (e) {
+      console.warn("Failed to play sound:", e);
+    }
   }
 }
 
 async function handleStopSound(soundId) {
-  if (window.stopSound) {
-    const ps = state.playingSounds[soundId];
-    if (ps && ps.id) {
-      await window.stopSound(ps.id);
-    } else {
-      await window.stopSound(soundId);
+  const ps = state.playingSounds[soundId];
+  const targetId = (ps && ps.id) ? ps.id : soundId;
+  try {
+    if (window.stopSound) {
+      await window.stopSound(targetId);
     }
+  } catch (e) {
+    console.warn("stopSound error:", e);
   }
-  if (state.playingSounds[soundId]) {
-    delete state.playingSounds[soundId];
-    renderApp();
+  delete state.playingSounds[soundId];
+  if (ps && ps.id) {
+    delete state.playingSounds[ps.id];
   }
+  if (state.currentPlayingSoundId === soundId || (ps && state.currentPlayingSoundId === ps.id)) {
+    const remainingIds = Object.keys(state.playingSounds);
+    state.currentPlayingSoundId = remainingIds.length > 0 ? remainingIds[remainingIds.length - 1] : null;
+  }
+  cleanupScrubberDrag();
+  renderApp();
 }
 
 async function handleStopAll() {
-  if (window.stopSounds) {
-    await window.stopSounds();
+  try {
+    if (window.stopSounds) {
+      await window.stopSounds();
+    }
+  } catch (e) {
+    console.warn("stopSounds error:", e);
   }
+  state.playingSounds = {};
+  state.currentPlayingSoundId = null;
+  cleanupScrubberDrag();
+  renderApp();
 }
 
 async function handleAddTab() {
@@ -538,11 +570,6 @@ async function toggleFavorite(soundId, currentFavState) {
     state.tabs = await window.getTabs();
     renderApp();
   }
-}
-
-function changeListViewMode(mode) {
-  state.listViewMode = mode;
-  renderApp();
 }
 
 function handleSearch(val) {
@@ -900,7 +927,7 @@ async function handleResetSoundVolume(soundId, event) {
 }
 
 async function handleMasterVolumeInput(type, val) {
-  const numVal = parseInt(val, 10);
+  const numVal = Math.max(0, Math.min(100, parseInt(val, 10) || 0));
   
   if (state.settings.syncVolumes) {
     state.settings.localVolume = numVal;
@@ -920,7 +947,10 @@ async function handleMasterVolumeInput(type, val) {
       const el = document.getElementById(item.id);
       if (el) {
         if (item.text !== undefined) el.innerText = item.text;
-        if (item.val !== undefined) el.value = item.val;
+        if (item.val !== undefined) {
+          el.value = item.val;
+          el.setAttribute('value', item.val);
+        }
       }
     });
   } else {
@@ -930,12 +960,20 @@ async function handleMasterVolumeInput(type, val) {
       const t2 = document.getElementById('settings-vol-text-local');
       if (t1) t1.innerText = `${numVal}%`;
       if (t2) t2.innerText = `${numVal}%`;
+      const i1 = document.getElementById('master-vol-input-local');
+      const i2 = document.getElementById('settings-vol-input-local');
+      if (i1) { i1.value = numVal; i1.setAttribute('value', numVal); }
+      if (i2) { i2.value = numVal; i2.setAttribute('value', numVal); }
     } else {
       state.settings.remoteVolume = numVal;
       const t1 = document.getElementById('master-vol-text-remote');
       const t2 = document.getElementById('settings-vol-text-remote');
       if (t1) t1.innerText = `${numVal}%`;
       if (t2) t2.innerText = `${numVal}%`;
+      const i1 = document.getElementById('master-vol-input-remote');
+      const i2 = document.getElementById('settings-vol-input-remote');
+      if (i1) { i1.value = numVal; i1.setAttribute('value', numVal); }
+      if (i2) { i2.value = numVal; i2.setAttribute('value', numVal); }
     }
   }
 
@@ -945,7 +983,11 @@ async function handleMasterVolumeInput(type, val) {
   }
 
   if (window.changeSettings) {
-    await window.changeSettings(state.settings);
+    try {
+      await window.changeSettings(state.settings);
+    } catch (e) {
+      console.warn("changeSettings error:", e);
+    }
   }
 }
 
@@ -971,13 +1013,20 @@ async function handleOpenFolder(tabId) {
 // --- Settings Changes Operations ---
 async function updateSetting(key, val) {
   state.settings[key] = val;
+  if (key === 'syncVolumes' && val) {
+    state.settings.remoteVolume = state.settings.localVolume;
+  }
   if (key === 'theme') {
     applyThemeStyles();
   }
-  if (window.changeSettings) {
-    await window.changeSettings(state.settings);
-  }
   renderApp();
+  if (window.changeSettings) {
+    try {
+      await window.changeSettings(state.settings);
+    } catch (e) {
+      console.warn("Failed to persist setting:", key, e);
+    }
+  }
 }
 
 async function toggleOutputDevice(deviceName) {
@@ -1172,46 +1221,6 @@ async function handleUnloadSwitchOnConnect() {
   }
 }
 
-// --- YouTube-DL Downloader Actions ---
-async function handleStartDownload() {
-  const url = state.downloader.url.trim();
-  if (!url) {
-    showToast("Please enter a valid video URL", "error");
-    return;
-  }
-  if (!state.downloader.isYoutubeDLAvailable) {
-    showToast("YouTube-DL is not installed", "error");
-    return;
-  }
-
-  state.downloader.isDownloading = true;
-  state.downloader.progress = 0;
-  state.downloader.eta = '';
-  state.downloader.status = 'Analyzing link...';
-  renderApp();
-
-  if (window.startYoutubeDLDownload) {
-    const success = await window.startYoutubeDLDownload(url);
-    if (success) {
-      showToast("Download started successfully", "success");
-    } else {
-      state.downloader.isDownloading = false;
-      showToast("Failed to download. Check URL configuration.", "error");
-    }
-  }
-}
-
-async function handleCancelDownload() {
-  if (window.stopYoutubeDLDownload) {
-    await window.stopYoutubeDLDownload();
-    state.downloader.isDownloading = false;
-    state.downloader.progress = 0;
-    state.downloader.eta = '';
-    state.downloader.status = 'Cancelled';
-    showToast("Download cancelled", "info");
-    renderApp();
-  }
-}
 
 function handleOpenUrl(url) {
   if (window.openUrl) {
@@ -1412,6 +1421,10 @@ function renderApp() {
   const container = document.getElementById('custom-app');
   if (!container) return;
 
+  if (state.isDraggingSeekbar) {
+    cleanupScrubberDrag();
+  }
+
   try {
     // Save scroll positions before re-rendering so list never jumps
   const wsBody = document.querySelector('.workspace-body');
@@ -1462,8 +1475,6 @@ function renderApp() {
       }
     });
     soundsList = favs;
-  } else if (state.currentView === 'downloader') {
-    activeTitle = "YouTube Downloader";
   } else if (state.currentView === 'settings') {
     activeTitle = "Settings";
   } else if (state.currentView === 'system-info') {
@@ -1534,10 +1545,6 @@ function renderApp() {
 
         <!-- Sidebar Bottom Utility Dock -->
         <div class="sidebar-utility-dock">
-          <div class="nav-item ${state.currentView === 'downloader' ? 'active' : ''}" onclick="changeView('downloader')">
-            <span class="nav-icon">${icons.downloader}</span>
-            <span>Downloader</span>
-          </div>
           <div class="nav-item ${state.currentView === 'settings' ? 'active' : ''}" onclick="changeView('settings')">
             <span class="nav-icon">${icons.settings}</span>
             <span>Settings & Audio</span>
@@ -1571,7 +1578,7 @@ function renderApp() {
               <div class="fader-item" title="Local playback volume (Speakers/Headphones)">
                 <span class="fader-icon">${icons.headphones}</span>
                 <span class="fader-name">Phones</span>
-                <input type="range" class="fader-range" min="0" max="100" 
+                <input type="range" id="master-vol-input-local" class="fader-range" min="0" max="100" 
                        value="${state.settings.localVolume}" 
                        onpointerdown="handleSliderDragStart(event)" 
                        onmousedown="handleSliderDragStart(event)" 
@@ -1581,7 +1588,7 @@ function renderApp() {
               <div class="fader-item" title="Remote playback volume (Microphone passthrough)">
                 <span class="fader-icon">${icons.mic}</span>
                 <span class="fader-name">Mic Out</span>
-                <input type="range" class="fader-range" min="0" max="100" 
+                <input type="range" id="master-vol-input-remote" class="fader-range" min="0" max="100" 
                        value="${state.settings.remoteVolume}" 
                        onpointerdown="handleSliderDragStart(event)" 
                        onmousedown="handleSliderDragStart(event)" 
@@ -2060,52 +2067,6 @@ function renderViewContent(soundsList, isFolderView, activeTab) {
     `;
   }
 
-  if (state.currentView === 'downloader') {
-    return `
-      <div class="card-section">
-        <div class="card-title">YouTube Video / Audio Downloader</div>
-        
-        ${!state.downloader.isYoutubeDLAvailable ? `
-          <div style="background-color: rgba(217,119,6,0.08); border: 1px solid var(--color-warning); border-radius: var(--radius-md); padding: var(--spacing-md); display: flex; flex-direction: column; gap: var(--spacing-sm);">
-            <div style="font-size: 13px; font-weight: 600; color: var(--color-warning);">YouTube-DL is not installed</div>
-            <div style="font-size: 12px; color: var(--color-secondary);">Audiopad requires YouTube-DL or Yt-Dlp libraries installed on the system path to parse and pull remote links.</div>
-            <button class="btn-primary" style="align-self: flex-start;" onclick="handleOpenUrl('https://github.com/audiopadapp/audiopad/wiki/Downloader-support')">
-              Read Installation Wiki
-            </button>
-          </div>
-        ` : `
-          <div class="form-group">
-            <label for="downloader-url">Insert Video Link URL (YouTube, Vimeo, etc.)</label>
-            <div class="form-control-row">
-              <input type="text" id="downloader-url" class="form-input" placeholder="https://www.youtube.com/watch?v=..." value="${state.downloader.url}" oninput="state.downloader.url = this.value">
-              
-              ${state.downloader.isDownloading ? `
-                <button class="btn-primary" style="background-color: var(--color-error);" onclick="handleCancelDownload()">
-                  ${icons.spinner} Cancel
-                </button>
-              ` : `
-                <button class="btn-primary" onclick="handleStartDownload()">
-                  ${icons.downloader} Download & Import
-                </button>
-              `}
-            </div>
-          </div>
-        `}
-        
-        ${state.downloader.isDownloading ? `
-          <div class="downloader-progress-container">
-            <div class="progress-meta">
-              <span style="font-weight: 600; color: var(--color-primary);">${state.downloader.status}</span>
-              <span>${state.downloader.eta || ''}</span>
-            </div>
-            <div class="progress-bar-wrapper">
-              <div class="progress-bar-fill" style="width: ${state.downloader.progress}%"></div>
-            </div>
-          </div>
-        ` : ''}
-      </div>
-    `;
-  }
 
   if (state.currentView === 'settings') {
     return `
@@ -2430,22 +2391,297 @@ function renderOsSettingsPanel() {
   }
 }
 
+function formatMs(ms) {
+  if (!ms || ms < 0) return '0:00';
+  const totalSecs = Math.floor(ms / 1000);
+  const mins = Math.floor(totalSecs / 60);
+  const secs = totalSecs % 60;
+  return `${mins}:${secs.toString().padStart(2, '0')}`;
+}
+
+function getActivePlayback() {
+  if (state.currentPlayingSoundId !== null && state.currentPlayingSoundId !== undefined) {
+    const details = state.playingSounds[state.currentPlayingSoundId];
+    if (details) {
+      const playId = (details.id !== undefined) ? details.id : (details.sound ? details.sound.id : state.currentPlayingSoundId);
+      const soundId = (details.sound && details.sound.id !== undefined) ? details.sound.id : playId;
+      return { soundKey: state.currentPlayingSoundId, details, playId, soundId };
+    }
+  }
+
+  const activeIds = Object.keys(state.playingSounds);
+  if (activeIds.length === 0) return null;
+  for (let i = activeIds.length - 1; i >= 0; i--) {
+    const soundKey = activeIds[i];
+    const details = state.playingSounds[soundKey];
+    if (details) {
+      const playId = (details.id !== undefined) ? details.id : (details.sound ? details.sound.id : soundKey);
+      const soundId = (details.sound && details.sound.id !== undefined) ? details.sound.id : playId;
+      state.currentPlayingSoundId = soundKey;
+      return { soundKey, details, playId, soundId };
+    }
+  }
+  return null;
+}
+
+function updateDockControlsInPlace() {
+  const active = getActivePlayback();
+  const isPlaying = active !== null;
+  const details = active ? active.details : null;
+
+  const btnRepeat = document.getElementById('dock-btn-repeat');
+  if (btnRepeat) {
+    if (details && details.repeat) {
+      btnRepeat.classList.add('active');
+      btnRepeat.style.color = 'var(--color-accent)';
+    } else {
+      btnRepeat.classList.remove('active');
+      btnRepeat.style.color = 'inherit';
+    }
+    btnRepeat.disabled = !isPlaying;
+  }
+
+  const btnPlay = document.getElementById('dock-btn-playpause');
+  if (btnPlay) {
+    const isPaused = !details || !!details.paused;
+    btnPlay.innerHTML = (isPlaying && !isPaused) ? icons.pause : icons.play;
+    btnPlay.title = isPlaying ? (isPaused ? 'Resume Playback' : 'Pause Playback') : 'Play';
+    btnPlay.disabled = !isPlaying;
+    if (isPlaying && !isPaused) {
+      btnPlay.classList.add('play-btn');
+    } else {
+      btnPlay.classList.remove('play-btn');
+    }
+  }
+
+  const btnStop = document.getElementById('dock-btn-stop');
+  if (btnStop) {
+    btnStop.disabled = !isPlaying;
+  }
+
+  const eqBars = document.getElementById('dock-eq-bars');
+  if (eqBars) {
+    eqBars.style.display = (isPlaying && details && details.sound) ? '' : 'none';
+    if (details && details.paused) {
+      eqBars.classList.add('paused');
+      eqBars.title = 'Playback Paused';
+    } else {
+      eqBars.classList.remove('paused');
+      eqBars.title = 'Playing Audio Stream';
+    }
+  }
+
+  const nameEl = document.getElementById('playback-dock-name');
+  if (nameEl && details && details.sound) {
+    nameEl.textContent = details.sound.name || 'Active Sound';
+    nameEl.style.color = 'var(--color-primary)';
+  }
+
+  const pathEl = document.getElementById('playback-dock-path');
+  if (pathEl && details && details.sound) {
+    const isPaused = !details || !!details.paused;
+    const current = details.readInMs || 0;
+    const length = details.lengthInMs || 1;
+    pathEl.textContent = `${isPaused ? 'Paused' : 'Playing stream'} • ${formatMs(current)} / ${formatMs(length)}`;
+  }
+}
+
+async function handleTogglePlayPause() {
+  const active = getActivePlayback();
+  if (!active || !active.details) return;
+  const { details, playId } = active;
+
+  const willPause = !details.paused;
+  details.paused = willPause;
+  updateDockControlsInPlace();
+
+  try {
+    if (willPause) {
+      if (window.pauseSound) {
+        await window.pauseSound(playId);
+      }
+    } else {
+      if (window.resumeSound) {
+        await window.resumeSound(playId);
+      }
+    }
+  } catch (e) {
+    console.warn("toggle play/pause failed:", e);
+    details.paused = !willPause;
+    updateDockControlsInPlace();
+  }
+}
+
+async function handleToggleRepeat() {
+  const active = getActivePlayback();
+  if (!active || !active.details) return;
+  const { details, playId } = active;
+
+  details.repeat = !details.repeat;
+  updateDockControlsInPlace();
+
+  try {
+    if (window.repeatSound) {
+      await window.repeatSound(playId, details.repeat);
+    }
+  } catch (e) {
+    console.warn("toggle repeat failed:", e);
+    details.repeat = !details.repeat;
+    updateDockControlsInPlace();
+  }
+}
+
+async function handleStopActiveSound() {
+  const active = getActivePlayback();
+  if (!active || !active.details) return;
+  const { playId, soundId } = active;
+
+  try {
+    if (window.stopSound) {
+      await window.stopSound(playId);
+    }
+  } catch (e) {
+    console.warn("stopSound error:", e);
+  }
+
+  delete state.playingSounds[soundId];
+  delete state.playingSounds[playId];
+  if (state.currentPlayingSoundId === soundId || state.currentPlayingSoundId === playId) {
+    const remainingIds = Object.keys(state.playingSounds);
+    state.currentPlayingSoundId = remainingIds.length > 0 ? remainingIds[remainingIds.length - 1] : null;
+  }
+  cleanupScrubberDrag();
+  renderApp();
+}
+
+function handleScrubberPointerDown(event) {
+  if (event.button !== 0) return;
+  event.preventDefault();
+  event.stopPropagation();
+
+  const active = getActivePlayback();
+  if (!active || !active.details) return;
+  const bar = document.getElementById('playback-dock-bar');
+  if (!bar) return;
+
+  state.isDraggingSeekbar = true;
+  bar.classList.add('dragging');
+
+  try {
+    bar.setPointerCapture(event.pointerId);
+  } catch (e) {}
+
+  updateScrubberFromEvent(event);
+
+  bar.onpointermove = handleScrubberPointerMove;
+  bar.onpointerup = handleScrubberPointerUp;
+  bar.onpointercancel = handleScrubberPointerCancel;
+}
+
+function updateScrubberFromEvent(event) {
+  const active = getActivePlayback();
+  if (!active || !active.details) return;
+  const bar = document.getElementById('playback-dock-bar');
+  if (!bar) return;
+
+  const rect = bar.getBoundingClientRect();
+  const width = rect.width;
+  if (width <= 0) return;
+
+  let clickX = event.clientX - rect.left;
+  clickX = Math.max(0, Math.min(clickX, width));
+  const ratio = clickX / width;
+
+  const length = active.details.lengthInMs || 1;
+  const previewMs = Math.floor(length * ratio);
+  state.dragSeekPosition = previewMs;
+  const percentage = Math.min((previewMs / length) * 100, 100);
+
+  const fill = document.getElementById('playback-dock-fill');
+  if (fill) fill.style.width = `${percentage}%`;
+
+  const thumb = document.getElementById('playback-dock-thumb');
+  if (thumb) {
+    thumb.style.left = `${percentage}%`;
+    thumb.style.display = 'block';
+  }
+
+  const curTime = document.getElementById('playback-dock-current');
+  if (curTime) curTime.textContent = formatMs(previewMs);
+}
+
+function handleScrubberPointerMove(event) {
+  if (!state.isDraggingSeekbar) return;
+  updateScrubberFromEvent(event);
+}
+
+async function handleScrubberPointerUp(event) {
+  if (!state.isDraggingSeekbar) return;
+  const bar = document.getElementById('playback-dock-bar');
+  if (bar) {
+    try {
+      if (bar.hasPointerCapture(event.pointerId)) {
+        bar.releasePointerCapture(event.pointerId);
+      }
+    } catch (e) {}
+    bar.classList.remove('dragging');
+    bar.onpointermove = null;
+    bar.onpointerup = null;
+    bar.onpointercancel = null;
+  }
+  state.isDraggingSeekbar = false;
+
+  const active = getActivePlayback();
+  if (!active || !active.details) return;
+
+  const seekTargetMs = state.dragSeekPosition;
+  active.details.readInMs = seekTargetMs;
+
+  try {
+    if (window.seekSound) {
+      await window.seekSound(active.playId, seekTargetMs);
+    }
+  } catch (e) {
+    console.warn("seekSound error:", e);
+  }
+}
+
+function handleScrubberPointerCancel(event) {
+  cleanupScrubberDrag();
+}
+
+function cleanupScrubberDrag() {
+  state.isDraggingSeekbar = false;
+  const bar = document.getElementById('playback-dock-bar');
+  if (bar) {
+    bar.classList.remove('dragging');
+    bar.onpointermove = null;
+    bar.onpointerup = null;
+    bar.onpointercancel = null;
+  }
+}
+
 function updatePlaybackDockInPlace(playingSound) {
+  if (state.isDraggingSeekbar) {
+    return;
+  }
   const dock = document.getElementById('playback-dock');
   if (!dock) {
     renderApp();
     return;
   }
+
+  // If dock controls were rendered in an idle/disabled state, promote and refresh the layout
+  const playBtn = document.getElementById('dock-btn-playpause');
+  if (!playBtn || playBtn.disabled) {
+    renderApp();
+    return;
+  }
+
   const length = playingSound.lengthInMs || 1;
   const current = playingSound.readInMs || 0;
   const percentage = Math.min((current / length) * 100, 100);
-
-  const formatMs = (ms) => {
-    const totalSecs = Math.floor(ms / 1000);
-    const mins = Math.floor(totalSecs / 60);
-    const secs = totalSecs % 60;
-    return `${mins}:${secs.toString().padStart(2, '0')}`;
-  };
+  const isPaused = !!playingSound.paused;
 
   const curTime = document.getElementById('playback-dock-current');
   if (curTime) curTime.textContent = formatMs(current);
@@ -2456,7 +2692,55 @@ function updatePlaybackDockInPlace(playingSound) {
   const fill = document.getElementById('playback-dock-fill');
   if (fill) fill.style.width = `${percentage}%`;
 
-  if (playingSound.sound && playingSound.sound.id) {
+  const thumb = document.getElementById('playback-dock-thumb');
+  if (thumb) {
+    thumb.style.left = `${percentage}%`;
+    thumb.style.display = 'block';
+  }
+
+  playBtn.innerHTML = isPaused ? icons.play : icons.pause;
+  playBtn.title = isPaused ? 'Resume Playback' : 'Pause Playback';
+  if (isPaused) {
+    playBtn.classList.remove('play-btn');
+  } else {
+    playBtn.classList.add('play-btn');
+  }
+
+  const repeatBtn = document.getElementById('dock-btn-repeat');
+  if (repeatBtn) {
+    if (playingSound.repeat) {
+      repeatBtn.classList.add('active');
+      repeatBtn.style.color = 'var(--color-accent)';
+    } else {
+      repeatBtn.classList.remove('active');
+      repeatBtn.style.color = 'inherit';
+    }
+  }
+
+  const eqBars = document.getElementById('dock-eq-bars');
+  if (eqBars) {
+    eqBars.style.display = '';
+    if (isPaused) {
+      eqBars.classList.add('paused');
+      eqBars.title = 'Playback Paused';
+    } else {
+      eqBars.classList.remove('paused');
+      eqBars.title = 'Playing Audio Stream';
+    }
+  }
+
+  const pathEl = document.getElementById('playback-dock-path');
+  if (pathEl) {
+    pathEl.textContent = `${isPaused ? 'Paused' : 'Playing stream'} • ${formatMs(current)} / ${formatMs(length)}`;
+  }
+
+  const nameEl = document.getElementById('playback-dock-name');
+  if (nameEl && playingSound.sound && playingSound.sound.name && nameEl.textContent !== playingSound.sound.name) {
+    nameEl.textContent = playingSound.sound.name;
+    nameEl.style.color = 'var(--color-primary)';
+  }
+
+  if (playingSound.sound && playingSound.sound.id !== undefined) {
     const tileProgress = document.getElementById(`deck-progress-${playingSound.sound.id}`);
     if (tileProgress) {
       tileProgress.style.width = `${percentage}%`;
@@ -2466,22 +2750,14 @@ function updatePlaybackDockInPlace(playingSound) {
 
 // Global bottom playback & hardware status bar (Docked 100% desktop transport)
 function renderPlaybackDock() {
-  const activeIds = Object.keys(state.playingSounds);
-  const isPlaying = activeIds.length > 0;
-  const playSoundId = isPlaying ? activeIds[0] : null;
-  const details = isPlaying ? state.playingSounds[playSoundId] : null;
+  const active = getActivePlayback();
+  const isPlaying = active !== null;
+  const details = active ? active.details : null;
 
   const length = details ? (details.lengthInMs || 1) : 0;
   const current = details ? (details.readInMs || 0) : 0;
   const percentage = length > 0 ? Math.min((current / length) * 100, 100) : 0;
-
-  const formatMs = (ms) => {
-    if (!ms) return '0:00';
-    const totalSecs = Math.floor(ms / 1000);
-    const mins = Math.floor(totalSecs / 60);
-    const secs = totalSecs % 60;
-    return `${mins}:${secs.toString().padStart(2, '0')}`;
-  };
+  const isPaused = details ? !!details.paused : false;
 
   const totalSounds = state.tabs.reduce((acc, t) => acc + (t.sounds ? t.sounds.length : 0), 0);
   const activeDeviceName = state.settings.outputs && state.settings.outputs.length > 0 ? state.settings.outputs[0] : 'Default Speakers';
@@ -2489,53 +2765,53 @@ function renderPlaybackDock() {
   return `
     <footer id="playback-dock">
       <div class="dock-track-info">
-        ${isPlaying && details && details.sound ? `
-          <div class="eq-bars" title="Playing Audio Stream">
-            <span class="eq-bar"></span>
-            <span class="eq-bar"></span>
-            <span class="eq-bar"></span>
-            <span class="eq-bar"></span>
-          </div>
-          <div class="dock-track-text">
-            <span id="playback-dock-name" class="dock-track-title">${details.sound.name || 'Active Sound'}</span>
-            <span id="playback-dock-path" class="dock-track-sub">${details.sound.path || 'Active Sound'}</span>
-          </div>
-        ` : `
-          <span style="color: var(--color-muted); display: flex; align-items: center;">${icons.music}</span>
-          <div class="dock-track-text">
-            <span class="dock-track-title" style="color: var(--color-secondary);">Soundboard Ready</span>
-            <span class="dock-track-sub">Press hotkey or trigger sound pad</span>
-          </div>
-        `}
+        <div id="dock-eq-bars" class="eq-bars ${isPaused ? 'paused' : ''}" style="${isPlaying && details && details.sound ? '' : 'display: none;'}" title="${isPaused ? 'Playback Paused' : 'Playing Audio Stream'}">
+          <span class="eq-bar"></span>
+          <span class="eq-bar"></span>
+          <span class="eq-bar"></span>
+          <span class="eq-bar"></span>
+        </div>
+        ${!isPlaying ? `<span id="playback-dock-icon" style="color: var(--color-muted); display: flex; align-items: center;">${icons.music}</span>` : ''}
+        <div class="dock-track-text">
+          <span id="playback-dock-name" class="dock-track-title" style="${isPlaying && details && details.sound ? '' : 'color: var(--color-secondary);'}">
+            ${isPlaying && details && details.sound ? (details.sound.name || 'Active Sound') : 'Soundboard Ready'}
+          </span>
+          <span id="playback-dock-path" class="dock-track-sub">
+            ${isPlaying && details && details.sound ? `${isPaused ? 'Paused' : 'Playing stream'} • ${formatMs(current)} / ${formatMs(length)}` : 'Press hotkey or trigger sound pad'}
+          </span>
+        </div>
       </div>
       
       <div class="dock-center-transport">
         <div class="dock-transport-controls">
-          <button class="action-btn ${details && details.repeat ? 'active' : ''}" 
+          <button id="dock-btn-repeat" class="action-btn ${details && details.repeat ? 'active' : ''}" 
                   style="color: ${details && details.repeat ? 'var(--color-accent)' : 'inherit'};" 
                   title="Repeat Track" 
                   ${!isPlaying ? 'disabled' : ''}
-                  onclick="event.stopPropagation(); ${isPlaying && playSoundId !== null ? `window.repeatSound && window.repeatSound(${playSoundId}, ${details ? !details.repeat : false})` : ''}">
+                  onclick="event.stopPropagation(); handleToggleRepeat()">
             ${icons.repeat}
           </button>
-          <button class="action-btn ${isPlaying && details && !details.paused ? 'play-btn' : ''}" 
-                  title="${isPlaying ? (details && details.paused ? 'Resume Playback' : 'Pause Playback') : 'Play'}" 
+          <button id="dock-btn-playpause" class="action-btn ${isPlaying && !isPaused ? 'play-btn' : ''}" 
+                  title="${isPlaying ? (isPaused ? 'Resume Playback' : 'Pause Playback') : 'Play'}" 
                   ${!isPlaying ? 'disabled' : ''}
-                  onclick="event.stopPropagation(); ${isPlaying && details && playSoundId !== null ? (details.paused ? `window.resumeSound(${playSoundId})` : `window.pauseSound(${playSoundId})`) : ''}">
-            ${isPlaying && details && !details.paused ? icons.pause : icons.play}
+                  onclick="event.stopPropagation(); handleTogglePlayPause()">
+            ${isPlaying && !isPaused ? icons.pause : icons.play}
           </button>
-          <button class="action-btn stop-btn" 
+          <button id="dock-btn-stop" class="action-btn stop-btn" 
                   title="Stop Playback" 
                   ${!isPlaying ? 'disabled' : ''}
-                  onclick="event.stopPropagation(); ${isPlaying && playSoundId !== null ? `handleStopSound(${playSoundId})` : ''}">
+                  onclick="event.stopPropagation(); handleStopActiveSound()">
             ${icons.stop}
           </button>
         </div>
 
         <div class="dock-scrub-row">
           <span id="playback-dock-current" class="dock-time-text">${formatMs(current)}</span>
-          <div class="progress-bar-wrapper" style="cursor: ${isPlaying ? 'pointer' : 'default'};" onclick="${isPlaying && playSoundId !== null ? `handleProgressBarSeek(${playSoundId}, event)` : ''}">
+          <div id="playback-dock-bar" class="progress-bar-wrapper" 
+               style="cursor: ${isPlaying ? 'pointer' : 'default'};" 
+               onpointerdown="${isPlaying ? 'handleScrubberPointerDown(event)' : ''}">
             <div id="playback-dock-fill" class="progress-bar-fill" style="width: ${percentage}%"></div>
+            <div id="playback-dock-thumb" class="progress-bar-thumb" style="left: ${percentage}%; display: ${isPlaying ? 'block' : 'none'};"></div>
           </div>
           <span id="playback-dock-length" class="dock-time-text">${formatMs(length)}</span>
         </div>
@@ -2551,21 +2827,6 @@ function renderPlaybackDock() {
       </div>
     </footer>
   `;
-}
-
-// Handle clicking on progress bar to seek audio stream
-function handleProgressBarSeek(soundId, event) {
-  const bar = event.currentTarget;
-  const rect = bar.getBoundingClientRect();
-  const clickX = event.clientX - rect.left;
-  const width = rect.width;
-  const ratio = clickX / width;
-  
-  const details = state.playingSounds[soundId];
-  if (details && details.lengthInMs && window.seekSound) {
-    const seekPosition = Math.floor(details.lengthInMs * ratio);
-    window.seekSound(soundId, seekPosition);
-  }
 }
 
 // Render recording dialog popup modals

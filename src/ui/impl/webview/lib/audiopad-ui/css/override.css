@@ -1000,6 +1000,11 @@ html, body {
   100% { transform: scaleY(1); }
 }
 
+.eq-bars.paused .eq-bar {
+  animation-play-state: paused;
+  opacity: 0.6;
+}
+
 /* --- View 2: High-Density Studio Table (Soundpad Style) --- */
 .table-container {
   flex-grow: 1;
@@ -1255,7 +1260,8 @@ html, body {
   align-items: center;
   padding: 0 var(--space-md);
   user-select: none;
-  z-index: 50;
+  z-index: 100;
+  pointer-events: auto;
   gap: var(--space-md);
 }
 
@@ -1319,22 +1325,60 @@ html, body {
 
 .progress-bar-wrapper {
   flex-grow: 1;
+  min-width: 140px;
   height: 4px;
-  background: rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.22);
   border-radius: 2px;
   position: relative;
   cursor: pointer;
-  overflow: hidden;
+  transition: height 0.1s ease;
+  touch-action: none;
 }
 .light-theme .progress-bar-wrapper {
-  background: rgba(0, 0, 0, 0.12);
+  background: rgba(0, 0, 0, 0.18);
+}
+.progress-bar-wrapper:hover,
+.progress-bar-wrapper.dragging {
+  height: 6px;
+}
+/* Extended invisible click/touch target so users can easily click and scrub */
+.progress-bar-wrapper::before {
+  content: '';
+  position: absolute;
+  top: -10px;
+  bottom: -10px;
+  left: 0;
+  right: 0;
+  cursor: pointer;
+  z-index: 1;
 }
 
 .progress-bar-fill {
   height: 100%;
   background-color: var(--color-accent);
   width: 0%;
-  transition: width 0.08s linear;
+  border-radius: 2px;
+  pointer-events: none;
+  position: relative;
+  z-index: 2;
+}
+
+.progress-bar-thumb {
+  position: absolute;
+  top: 50%;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background-color: #ffffff;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.55);
+  transform: translate(-50%, -50%) scale(0);
+  transition: transform 0.12s ease;
+  pointer-events: none;
+  z-index: 3;
+}
+.progress-bar-wrapper:hover .progress-bar-thumb,
+.progress-bar-wrapper.dragging .progress-bar-thumb {
+  transform: translate(-50%, -50%) scale(1);
 }
 
 .dock-right-meta {

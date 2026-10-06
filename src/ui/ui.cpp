@@ -237,6 +237,7 @@ namespace Audiopad::Objects
                 groupedSounds->insert({playingSound->id, remotePlayingSound->id});
                 if (Globals::gSettings.outputs.empty() && playingSound)
                 {
+                    onSoundPlayed(*playingSound);
                     return *playingSound;
                 }
                 if (!Globals::gSettings.outputs.empty() && Globals::gAudioBackend)
@@ -261,6 +262,7 @@ namespace Audiopad::Objects
                         return std::nullopt;
                     }
 
+                    onSoundPlayed(*playingSound);
                     return *playingSound;
                 }
             }
@@ -303,7 +305,12 @@ namespace Audiopad::Objects
 
             if (Globals::gSettings.outputs.empty() && !Globals::gSettings.useAsDefaultDevice)
             {
-                return Globals::gAudio.play(*sound);
+                auto playingSound = Globals::gAudio.play(*sound);
+                if (playingSound)
+                {
+                    onSoundPlayed(*playingSound);
+                }
+                return playingSound;
             }
 
             auto playingSound = Globals::gAudio.play(*sound);
@@ -315,6 +322,7 @@ namespace Audiopad::Objects
                 if (playingSound && remotePlayingSound)
                 {
                     groupedSounds->insert({playingSound->id, remotePlayingSound->id});
+                    onSoundPlayed(*playingSound);
                     return *playingSound;
                 }
 
@@ -329,6 +337,10 @@ namespace Audiopad::Objects
                 return std::nullopt;
             }
 
+            if (playingSound)
+            {
+                onSoundPlayed(*playingSound);
+            }
             return *playingSound;
         }
 
@@ -337,24 +349,37 @@ namespace Audiopad::Objects
         return std::nullopt;
     }
 #endif
-    std::optional<PlayingSound> Window::pauseSound(const std::uint32_t &id)
+    namespace
     {
-        std::optional<std::uint32_t> remoteSoundId;
-        if (!Globals::gSettings.outputs.empty() && !Globals::gSettings.useAsDefaultDevice)
+        std::optional<std::uint32_t> resolveRemoteSoundId(
+            sxl::var_guard<std::map<std::uint32_t, std::uint32_t>> &groupedSounds, const std::uint32_t &id)
         {
-            auto scoped = groupedSounds.scoped();
-            if (scoped->find(id) == scoped->end())
+            if (Globals::gSettings.outputs.empty() || Globals::gSettings.useAsDefaultDevice)
             {
-                if (!Globals::gSettings.outputs.empty() || !Globals::gSettings.useAsDefaultDevice)
+                return std::nullopt;
+            }
+
+            auto scoped = groupedSounds.scoped();
+            if (scoped->find(id) != scoped->end())
+            {
+                return scoped->at(id);
+            }
+
+            for (const auto &ps : Globals::gAudio.getPlayingSounds())
+            {
+                if (ps.sound.id == id && scoped->find(ps.id) != scoped->end())
                 {
-                    Fancy::fancy.logTime().warning() << "Failed to find remoteSound of sound " << id << std::endl;
+                    return scoped->at(ps.id);
                 }
             }
-            else
-            {
-                remoteSoundId = scoped->at(id);
-            }
+
+            return std::nullopt;
         }
+    }
+
+    std::optional<PlayingSound> Window::pauseSound(const std::uint32_t &id)
+    {
+        auto remoteSoundId = resolveRemoteSoundId(groupedSounds, id);
         auto playingSound = Globals::gAudio.pause(id);
         if (remoteSoundId)
         {
@@ -372,22 +397,7 @@ namespace Audiopad::Objects
     }
     std::optional<PlayingSound> Window::resumeSound(const std::uint32_t &id)
     {
-        std::optional<std::uint32_t> remoteSoundId;
-        if (!Globals::gSettings.outputs.empty() && !Globals::gSettings.useAsDefaultDevice)
-        {
-            auto scoped = groupedSounds.scoped();
-            if (scoped->find(id) == scoped->end())
-            {
-                if (!Globals::gSettings.outputs.empty() || !Globals::gSettings.useAsDefaultDevice)
-                {
-                    Fancy::fancy.logTime().warning() << "Failed to find remoteSound of sound " << id << std::endl;
-                }
-            }
-            else
-            {
-                remoteSoundId = scoped->at(id);
-            }
-        }
+        auto remoteSoundId = resolveRemoteSoundId(groupedSounds, id);
         auto playingSound = Globals::gAudio.resume(id);
         if (remoteSoundId)
         {
@@ -405,22 +415,7 @@ namespace Audiopad::Objects
     }
     std::optional<PlayingSound> Window::seekSound(const std::uint32_t &id, std::uint64_t seekTo)
     {
-        std::optional<std::uint32_t> remoteSoundId;
-        if (!Globals::gSettings.outputs.empty() && !Globals::gSettings.useAsDefaultDevice)
-        {
-            auto scoped = groupedSounds.scoped();
-            if (scoped->find(id) == scoped->end())
-            {
-                if (!Globals::gSettings.outputs.empty() || !Globals::gSettings.useAsDefaultDevice)
-                {
-                    Fancy::fancy.logTime().warning() << "Failed to find remoteSound of sound " << id << std::endl;
-                }
-            }
-            else
-            {
-                remoteSoundId = scoped->at(id);
-            }
-        }
+        auto remoteSoundId = resolveRemoteSoundId(groupedSounds, id);
         auto playingSound = Globals::gAudio.seek(id, seekTo);
         if (remoteSoundId)
         {
@@ -438,22 +433,7 @@ namespace Audiopad::Objects
     }
     std::optional<PlayingSound> Window::repeatSound(const std::uint32_t &id, bool shouldRepeat)
     {
-        std::optional<std::uint32_t> remoteSoundId;
-        if (!Globals::gSettings.outputs.empty() && !Globals::gSettings.useAsDefaultDevice)
-        {
-            auto scoped = groupedSounds.scoped();
-            if (scoped->find(id) == scoped->end())
-            {
-                if (!Globals::gSettings.outputs.empty() || !Globals::gSettings.useAsDefaultDevice)
-                {
-                    Fancy::fancy.logTime().warning() << "Failed to find remoteSound of sound " << id << std::endl;
-                }
-            }
-            else
-            {
-                remoteSoundId = scoped->at(id);
-            }
-        }
+        auto remoteSoundId = resolveRemoteSoundId(groupedSounds, id);
         auto playingSound = Globals::gAudio.repeat(id, shouldRepeat);
         if (remoteSoundId)
         {

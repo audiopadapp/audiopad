@@ -8,7 +8,6 @@
 #include <helper/json/bindings.hpp>
 #include <helper/systeminfo/systeminfo.hpp>
 #include <helper/version/check.hpp>
-#include <helper/ytdl/youtube-dl.hpp>
 #include <fstream>
 #include <helper/base64/base64.hpp>
 #include <nfd.hpp>
@@ -196,22 +195,6 @@ namespace Audiopad::Objects
             Globals::gConfig.data.set(Globals::gData);
             Globals::gConfig.save();
             return true;
-        }));
-        webview->expose(Webview::Function("isYoutubeDLAvailable", []() { return Globals::gYtdl.available(); }));
-        webview->expose(
-            Webview::AsyncFunction("getYoutubeDLInfo", [this](Webview::Promise promise, const std::string &url) {
-                promise.resolve(Globals::gYtdl.getInfo(url));
-            }));
-        webview->expose(
-            Webview::AsyncFunction("startYoutubeDLDownload", [this](Webview::Promise promise, const std::string &url) {
-                promise.resolve(Globals::gYtdl.download(url));
-            }));
-        webview->expose(Webview::AsyncFunction("stopYoutubeDLDownload", [this](Webview::Promise promise) {
-            std::thread killDownload([promise, this] {
-                Globals::gYtdl.killDownload();
-                promise.discard();
-            });
-            killDownload.detach();
         }));
         webview->expose(Webview::Function("getSystemInfo", []() -> std::string { return SystemInfo::getSummary(); }));
         webview->expose(Webview::AsyncFunction(
@@ -504,10 +487,6 @@ namespace Audiopad::Objects
     {
         webview->callFunction<void>(Webview::JavaScriptFunction("window.updateSound", sound));
     }
-    void WebView::onDownloadProgressed(float progress, const std::string &eta)
-    {
-        webview->callFunction<void>(Webview::JavaScriptFunction("window.downloadProgressed", progress, eta));
-    }
     void WebView::onError(const Enums::ErrorCode &error)
     {
         webview->callFunction<void>(Webview::JavaScriptFunction("window.onError", static_cast<std::uint8_t>(error)));
@@ -515,7 +494,21 @@ namespace Audiopad::Objects
     Settings WebView::changeSettings(Settings newSettings)
     {
         auto rtn = Window::changeSettings(newSettings);
-        tray->update();
+        if (tray)
+        {
+            try
+            {
+                tray->update();
+            }
+            catch (const std::exception &e)
+            {
+                Fancy::fancy.logTime().warning() << "Failed to update tray: " << e.what() << std::endl;
+            }
+            catch (...)
+            {
+                Fancy::fancy.logTime().warning() << "Failed to update tray" << std::endl;
+            }
+        }
 
         return rtn;
     }
@@ -528,6 +521,7 @@ namespace Audiopad::Objects
     {
         Window::onAllSoundsFinished();
         webview->callFunction<void>(Webview::JavaScriptFunction("window.getStore().commit", "clearCurrentlyPlaying"));
+        webview->callFunction<void>(Webview::JavaScriptFunction("window.onAllSoundsFinished"));
     }
     void WebView::onSwitchOnConnectDetected(bool state)
     {
