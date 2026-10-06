@@ -49,6 +49,18 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="1.1.0" date="2026-10-07">
+      <url>https://github.com/audiopadapp/audiopad/releases/tag/v1.1.0</url>
+      <description>
+        <p>Release of Audiopad version 1.1.0</p>
+        <ul>
+          <li>Resolve transport dock responsiveness and volume slider synchronization</li>
+          <li>Synchronize playback start events and guard tray updates</li>
+          <li>Improve seek synchronization and audio progress reporting</li>
+          <li>Fix audio output routing and microphone override stability</li>
+        </ul>
+      </description>
+    </release>
     <release version="1.0.0" date="2026-06-30">
       <url>https://github.com/audiopadapp/audiopad/releases/tag/v1.0.0</url>
       <description>
