@@ -1489,7 +1489,6 @@ function renderApp() {
             <span class="sidebar-logo">${icons.logo}</span>
             <span class="logo-text">AudioPad</span>
           </div>
-          <span class="version-tag">DESKTOP</span>
         </div>
         
         <div class="sidebar-section-header">
@@ -1564,9 +1563,6 @@ function renderApp() {
             ` : `
               <span class="status-pill warning" title="VB-Cable passthrough not active (speakers only)">○ Local Only</span>
             `) : ''}
-            ${state.isElevated ? `
-              <span class="status-pill admin" title="Direct Windows audio endpoint elevation active">🛡️ Admin</span>
-            ` : ''}
           </div>
           
           <div class="header-actions">
@@ -2552,9 +2548,6 @@ function renderPlaybackDock() {
         <span class="dock-count-text">
           ${totalSounds} sounds
         </span>
-        ${state.isElevated ? `
-          <span class="status-pill admin" style="font-size: 10px; padding: 1px 6px;" title="Running with Administrator Privileges">🛡️ Admin</span>
-        ` : ''}
       </div>
     </footer>
   `;

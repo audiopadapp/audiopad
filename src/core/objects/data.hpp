@@ -22,7 +22,7 @@ namespace Audiopad
 
           public:
             bool isOnFavorites = false;
-            int width = 1280, height = 720;
+            int width = 1440, height = 820;
             std::uint32_t soundIdCounter = 0;
 
             std::vector<Tab> getTabs() const;
