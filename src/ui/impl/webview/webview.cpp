@@ -8,7 +8,6 @@
 #include <helper/json/bindings.hpp>
 #include <helper/systeminfo/systeminfo.hpp>
 #include <helper/version/check.hpp>
-#include <helper/ytdl/youtube-dl.hpp>
 #include <fstream>
 #include <helper/base64/base64.hpp>
 #include <nfd.hpp>
@@ -196,22 +195,6 @@ namespace Audiopad::Objects
             Globals::gConfig.data.set(Globals::gData);
             Globals::gConfig.save();
             return true;
-        }));
-        webview->expose(Webview::Function("isYoutubeDLAvailable", []() { return Globals::gYtdl.available(); }));
-        webview->expose(
-            Webview::AsyncFunction("getYoutubeDLInfo", [this](Webview::Promise promise, const std::string &url) {
-                promise.resolve(Globals::gYtdl.getInfo(url));
-            }));
-        webview->expose(
-            Webview::AsyncFunction("startYoutubeDLDownload", [this](Webview::Promise promise, const std::string &url) {
-                promise.resolve(Globals::gYtdl.download(url));
-            }));
-        webview->expose(Webview::AsyncFunction("stopYoutubeDLDownload", [this](Webview::Promise promise) {
-            std::thread killDownload([promise, this] {
-                Globals::gYtdl.killDownload();
-                promise.discard();
-            });
-            killDownload.detach();
         }));
         webview->expose(Webview::Function("getSystemInfo", []() -> std::string { return SystemInfo::getSummary(); }));
         webview->expose(Webview::AsyncFunction(
@@ -503,10 +486,6 @@ namespace Audiopad::Objects
     void WebView::onSoundProgressed(const PlayingSound &sound)
     {
         webview->callFunction<void>(Webview::JavaScriptFunction("window.updateSound", sound));
-    }
-    void WebView::onDownloadProgressed(float progress, const std::string &eta)
-    {
-        webview->callFunction<void>(Webview::JavaScriptFunction("window.downloadProgressed", progress, eta));
     }
     void WebView::onError(const Enums::ErrorCode &error)
     {

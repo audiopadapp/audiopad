@@ -161,8 +161,7 @@ audiopad/
 │   │   ├── misc/               # String helpers and Unicode/narrow conversions
 │   │   ├── queue/              # Thread-safe job queue
 │   │   ├── systeminfo/         # Host OS information
-│   │   ├── version/            # Remote update and release check logic
-│   │   └── ytdl/               # Integrated audio downloader service
+│   │   └── version/            # Remote update and release check logic
 │   ├── ui/                     # UI abstractions, controllers, and platform bindings
 │   │   └── impl/webview/       # Webview shell, JavaScript bridge, and UI frontend
 │   │       ├── lib/audiopad-ui/ # Frontend web assets (HTML, CSS, JS)

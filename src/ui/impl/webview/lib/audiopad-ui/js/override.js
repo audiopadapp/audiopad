@@ -4,7 +4,6 @@ const icons = {
   folder: `<svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>`,
   folderOpen: `<svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path><path d="M2 10h20"></path></svg>`,
   favorites: `<svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon></svg>`,
-  downloader: `<svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>`,
   settings: `<svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>`,
   systemInfo: `<svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="8" rx="2" ry="2"></rect><rect x="2" y="14" width="20" height="8" rx="2" ry="2"></rect><line x1="6" y1="6" x2="6.01" y2="6"></line><line x1="6" y1="18" x2="6.01" y2="18"></line></svg>`,
   help: `<svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>`,
@@ -37,7 +36,7 @@ const icons = {
 let state = {
   tabs: [],
   activeTabId: null,
-  currentView: 'folder', // 'folder', 'favorites', 'downloader', 'settings', 'system-info', 'help'
+  currentView: 'folder', // 'folder', 'favorites', 'settings', 'system-info', 'help'
   searchQuery: '',
   listViewMode: 'deck', // 'deck' (Stream Deck Macro Tiles), 'table' (High-density Table), 'grid' (Media Grid)
   activeVolumePopoverSoundId: null,
@@ -90,16 +89,6 @@ let state = {
   recordingDevices: [],
   selectedMic: null,
   systemInfo: '',
-  
-  downloader: {
-    url: '',
-    progress: 0,
-    eta: '',
-    isDownloading: false,
-    status: '',
-    error: null,
-    isYoutubeDLAvailable: false
-  },
   
   playingSounds: {}, // Maps sound.id -> PlayingSound details
   toasts: []
@@ -359,18 +348,6 @@ function bindCppCallbacks() {
     renderApp();
   };
 
-  window.downloadProgressed = function(progress, eta) {
-    state.downloader.progress = progress;
-    state.downloader.eta = eta;
-    state.downloader.isDownloading = true;
-    if (progress >= 100) {
-      state.downloader.status = 'Converting...';
-    } else {
-      state.downloader.status = `Downloading: ${progress.toFixed(1)}%`;
-    }
-    renderApp();
-  };
-
   window.onError = function(errorCode) {
     const errorMessages = {
       0: "Failed to play sound",
@@ -384,9 +361,6 @@ function bindCppCallbacks() {
       8: "Tab category does not exist",
       9: "Failed to register hotkey",
       10: "Failed to start audio passthrough",
-      25: "YouTube-DL binaries not found",
-      26: "Invalid YouTube-DL video URL",
-      27: "Failed to parse metadata",
       29: "Failed to delete file",
       31: "Failed to adjust custom volume"
     };
@@ -427,8 +401,6 @@ function changeView(view, tabId = null) {
     loadSettingsAssets();
   } else if (view === 'system-info') {
     loadSystemInfo();
-  } else if (view === 'downloader') {
-    checkYoutubeDLAvailability();
   }
   
   renderApp();
@@ -469,13 +441,6 @@ async function loadSettingsAssets() {
 async function loadSystemInfo() {
   if (window.getSystemInfo) {
     state.systemInfo = await window.getSystemInfo();
-    renderApp();
-  }
-}
-
-async function checkYoutubeDLAvailability() {
-  if (window.isYoutubeDLAvailable) {
-    state.downloader.isYoutubeDLAvailable = await window.isYoutubeDLAvailable();
     renderApp();
   }
 }
@@ -1172,46 +1137,6 @@ async function handleUnloadSwitchOnConnect() {
   }
 }
 
-// --- YouTube-DL Downloader Actions ---
-async function handleStartDownload() {
-  const url = state.downloader.url.trim();
-  if (!url) {
-    showToast("Please enter a valid video URL", "error");
-    return;
-  }
-  if (!state.downloader.isYoutubeDLAvailable) {
-    showToast("YouTube-DL is not installed", "error");
-    return;
-  }
-
-  state.downloader.isDownloading = true;
-  state.downloader.progress = 0;
-  state.downloader.eta = '';
-  state.downloader.status = 'Analyzing link...';
-  renderApp();
-
-  if (window.startYoutubeDLDownload) {
-    const success = await window.startYoutubeDLDownload(url);
-    if (success) {
-      showToast("Download started successfully", "success");
-    } else {
-      state.downloader.isDownloading = false;
-      showToast("Failed to download. Check URL configuration.", "error");
-    }
-  }
-}
-
-async function handleCancelDownload() {
-  if (window.stopYoutubeDLDownload) {
-    await window.stopYoutubeDLDownload();
-    state.downloader.isDownloading = false;
-    state.downloader.progress = 0;
-    state.downloader.eta = '';
-    state.downloader.status = 'Cancelled';
-    showToast("Download cancelled", "info");
-    renderApp();
-  }
-}
 
 function handleOpenUrl(url) {
   if (window.openUrl) {
@@ -1462,8 +1387,6 @@ function renderApp() {
       }
     });
     soundsList = favs;
-  } else if (state.currentView === 'downloader') {
-    activeTitle = "YouTube Downloader";
   } else if (state.currentView === 'settings') {
     activeTitle = "Settings";
   } else if (state.currentView === 'system-info') {
@@ -1534,10 +1457,6 @@ function renderApp() {
 
         <!-- Sidebar Bottom Utility Dock -->
         <div class="sidebar-utility-dock">
-          <div class="nav-item ${state.currentView === 'downloader' ? 'active' : ''}" onclick="changeView('downloader')">
-            <span class="nav-icon">${icons.downloader}</span>
-            <span>Downloader</span>
-          </div>
           <div class="nav-item ${state.currentView === 'settings' ? 'active' : ''}" onclick="changeView('settings')">
             <span class="nav-icon">${icons.settings}</span>
             <span>Settings & Audio</span>
@@ -2060,52 +1979,6 @@ function renderViewContent(soundsList, isFolderView, activeTab) {
     `;
   }
 
-  if (state.currentView === 'downloader') {
-    return `
-      <div class="card-section">
-        <div class="card-title">YouTube Video / Audio Downloader</div>
-        
-        ${!state.downloader.isYoutubeDLAvailable ? `
-          <div style="background-color: rgba(217,119,6,0.08); border: 1px solid var(--color-warning); border-radius: var(--radius-md); padding: var(--spacing-md); display: flex; flex-direction: column; gap: var(--spacing-sm);">
-            <div style="font-size: 13px; font-weight: 600; color: var(--color-warning);">YouTube-DL is not installed</div>
-            <div style="font-size: 12px; color: var(--color-secondary);">Audiopad requires YouTube-DL or Yt-Dlp libraries installed on the system path to parse and pull remote links.</div>
-            <button class="btn-primary" style="align-self: flex-start;" onclick="handleOpenUrl('https://github.com/audiopadapp/audiopad/wiki/Downloader-support')">
-              Read Installation Wiki
-            </button>
-          </div>
-        ` : `
-          <div class="form-group">
-            <label for="downloader-url">Insert Video Link URL (YouTube, Vimeo, etc.)</label>
-            <div class="form-control-row">
-              <input type="text" id="downloader-url" class="form-input" placeholder="https://www.youtube.com/watch?v=..." value="${state.downloader.url}" oninput="state.downloader.url = this.value">
-              
-              ${state.downloader.isDownloading ? `
-                <button class="btn-primary" style="background-color: var(--color-error);" onclick="handleCancelDownload()">
-                  ${icons.spinner} Cancel
-                </button>
-              ` : `
-                <button class="btn-primary" onclick="handleStartDownload()">
-                  ${icons.downloader} Download & Import
-                </button>
-              `}
-            </div>
-          </div>
-        `}
-        
-        ${state.downloader.isDownloading ? `
-          <div class="downloader-progress-container">
-            <div class="progress-meta">
-              <span style="font-weight: 600; color: var(--color-primary);">${state.downloader.status}</span>
-              <span>${state.downloader.eta || ''}</span>
-            </div>
-            <div class="progress-bar-wrapper">
-              <div class="progress-bar-fill" style="width: ${state.downloader.progress}%"></div>
-            </div>
-          </div>
-        ` : ''}
-      </div>
-    `;
-  }
 
   if (state.currentView === 'settings') {
     return `

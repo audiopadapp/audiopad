@@ -1,4 +1,5 @@
 #include "audio.hpp"
+#include <algorithm>
 #include <chrono>
 #include <core/global/globals.hpp>
 #include <fancy.hpp>

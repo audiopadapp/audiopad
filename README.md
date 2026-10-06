@@ -62,7 +62,6 @@ Audiopad is split into two major component layers to maximize performance while 
 * **Instant Stream Injection**: Link playback directly to virtual input devices or physical micro channels.
 * **Separate Volume Sliders**: Adjust audio volume independently for what you hear locally versus what other users hear in the chat room.
 * **Global Hotkey Assignment**: Map standard or complex key combinations to sound triggers so you can play clips in-game without alt-tabbing.
-* **Song Downloader**: Includes an integrated downloader tool to fetch audio tracks directly from YouTube or other streaming sites. Just copy the URL, select a download folder, and Audiopad downloads and registers the clip automatically.
 * **Responsive Control Dock**: Keep track of currently playing audio clips, pause, adjust master speed, or trigger an emergency "Stop All" using the bottom-docked dashboard.
 
 ---

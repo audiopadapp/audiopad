@@ -13,7 +13,7 @@
 #include <guard.hpp>
 #include <helper/icons/icons.hpp>
 #include <helper/queue/queue.hpp>
-#include <helper/ytdl/youtube-dl.hpp>
+
 #include <memory>
 #include <ui/ui.hpp>
 #include <var_guard.hpp>
@@ -32,7 +32,6 @@ namespace Audiopad
 #endif
         inline Objects::Queue gQueue;
         inline Objects::Config gConfig;
-        inline Objects::YoutubeDl gYtdl;
         inline Objects::Hotkeys gHotKeys;
         inline Objects::Settings gSettings;
         inline std::unique_ptr<Objects::Window> gGui;
