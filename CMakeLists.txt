@@ -112,6 +112,13 @@ if (${EMBED_PATH} STREQUAL "OFF")
             DESTINATION "${CMAKE_SOURCE_DIR}/build/Debug/dist")
         file(COPY "${CMAKE_SOURCE_DIR}/src/ui/impl/webview/lib/audiopad-ui/" 
             DESTINATION "${CMAKE_SOURCE_DIR}/build/RelWithDebInfo/dist")
+
+        add_custom_command(TARGET audiopad POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_directory
+                "${CMAKE_SOURCE_DIR}/src/ui/impl/webview/lib/audiopad-ui"
+                "$<TARGET_FILE_DIR:audiopad>/dist"
+            COMMENT "Synchronizing frontend assets to target directory"
+        )
     else()
         file(COPY "${CMAKE_SOURCE_DIR}/src/ui/impl/webview/lib/audiopad-ui/" 
             DESTINATION "${CMAKE_SOURCE_DIR}/build/dist")
