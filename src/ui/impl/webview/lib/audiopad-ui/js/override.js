@@ -28,7 +28,9 @@ const icons = {
   image: `<svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline></svg>`,
   link: `<svg viewBox="0 0 24 24" width="12" height="12" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg>`,
   headphones: `<svg viewBox="0 0 24 24" width="13" height="13" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M3 18v-6a9 9 0 0 1 18 0v6"></path><path d="M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3zM3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H3z"></path></svg>`,
-  mic: `<svg viewBox="0 0 24 24" width="13" height="13" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path><path d="M19 10v2a7 7 0 0 1-14 0v-2"></path><line x1="12" y1="19" x2="12" y2="23"></line><line x1="8" y1="23" x2="16" y2="23"></line></svg>`
+  mic: `<svg viewBox="0 0 24 24" width="13" height="13" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path><path d="M19 10v2a7 7 0 0 1-14 0v-2"></path><line x1="12" y1="19" x2="12" y2="23"></line><line x1="8" y1="23" x2="16" y2="23"></line></svg>`,
+  sun: `<svg viewBox="0 0 24 24" width="13" height="13" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"></circle><line x1="12" y1="1" x2="12" y2="3"></line><line x1="12" y1="21" x2="12" y2="23"></line><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line><line x1="1" y1="12" x2="3" y2="12"></line><line x1="21" y1="12" x2="23" y2="12"></line><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line></svg>`,
+  moon: `<svg viewBox="0 0 24 24" width="13" height="13" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path></svg>`
 };
 
 // --- Application Reactive State ---
@@ -161,6 +163,7 @@ async function init() {
         const savedSettings = await window.getSettings();
         if (savedSettings) {
           state.settings = { ...state.settings, ...savedSettings };
+          applyThemeStyles();
         }
       } catch (e) {
         console.warn("Failed to query getSettings:", e);
@@ -212,6 +215,18 @@ async function init() {
 
     // Load system theme overrides
     applyThemeStyles();
+
+    // Listen for OS light/dark changes when theme mode is set to Follow System (0)
+    if (window.matchMedia) {
+      try {
+        window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
+          if (state.settings.theme === 0) {
+            applyThemeStyles();
+            renderApp();
+          }
+        });
+      } catch (e) {}
+    }
 
     // Attach global keyboard listeners (for hotkey recording overlays)
     window.addEventListener('keydown', handleGlobalKeydown);
@@ -296,15 +311,35 @@ async function init() {
 
 // Apply colors and layout depending on user settings / system preferences
 function applyThemeStyles() {
-  const isDarkTheme = 
-    state.settings.theme === 1 || 
-    (state.settings.theme === 0 && window.matchMedia('(prefers-color-scheme: dark)').matches);
+  const prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+  let isDark = false;
+  if (state.settings.theme === 1) {
+    isDark = true;
+  } else if (state.settings.theme === 2) {
+    isDark = false;
+  } else {
+    // 0 = Follow system settings
+    isDark = prefersDark;
+  }
     
-  if (isDarkTheme) {
+  if (isDark) {
+    document.documentElement.classList.remove('light-theme');
+    document.documentElement.classList.add('dark-theme');
+    document.body.classList.remove('light-theme');
     document.body.classList.add('dark-theme');
   } else {
+    document.documentElement.classList.remove('dark-theme');
+    document.documentElement.classList.add('light-theme');
     document.body.classList.remove('dark-theme');
+    document.body.classList.add('light-theme');
   }
+}
+
+// Quick toggle between Light and Dark themes
+function toggleTheme() {
+  const currentIsLight = document.body.classList.contains('light-theme');
+  const nextTheme = currentIsLight ? 1 : 2; // If currently light -> 1 (Dark), if dark -> 2 (Light)
+  updateSetting('theme', nextTheme);
 }
 
 // Binds custom triggers called by C++ Webview shell
@@ -1308,62 +1343,62 @@ function changeListViewMode(mode) {
 // --- Templates Rendering ---
 function renderVBCableRequiredPage() {
   return `
-    <div style="width: 100vw; height: 100vh; display: flex; align-items: center; justify-content: center; background: radial-gradient(circle at 50% 25%, rgba(59, 130, 246, 0.15), transparent 65%), var(--color-bg, #0f1117); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; padding: 24px; box-sizing: border-box; overflow-y: auto;">
-      <div style="max-width: 600px; width: 100%; background: var(--color-surface, rgba(22, 27, 34, 0.9)); backdrop-filter: blur(20px); border: 1px solid var(--color-border, rgba(255, 255, 255, 0.12)); border-radius: 16px; padding: 36px 32px; box-shadow: 0 24px 48px rgba(0, 0, 0, 0.6); text-align: center; display: flex; flex-direction: column; gap: 22px;">
+    <div style="width: 100vw; height: 100vh; display: flex; align-items: center; justify-content: center; background: var(--bg-app); font-family: var(--font-sans); padding: 24px; box-sizing: border-box; overflow-y: auto;">
+      <div style="max-width: 520px; width: 100%; background: var(--bg-surface); border: 1px solid var(--border-strong); border-radius: var(--radius-lg); padding: 28px 24px; box-shadow: var(--shadow-lg); display: flex; flex-direction: column; gap: 18px;">
         
         <!-- Header Icon & Title -->
-        <div style="display: flex; flex-direction: column; align-items: center; gap: 14px;">
-          <div style="width: 68px; height: 68px; border-radius: 50%; background: rgba(59, 130, 246, 0.15); border: 1px solid rgba(59, 130, 246, 0.35); display: flex; align-items: center; justify-content: center; font-size: 30px;">
-            🔌
+        <div style="display: flex; align-items: flex-start; gap: 14px;">
+          <div style="width: 42px; height: 42px; border-radius: var(--radius-sm); background: var(--bg-surface-inset); border: 1px solid var(--border-color); display: flex; align-items: center; justify-content: center; font-size: 20px; flex-shrink: 0; color: var(--color-accent);">
+            🎙️
           </div>
           <div>
-            <h2 style="margin: 0; font-size: 22px; font-weight: 700; color: var(--color-text-primary, #ffffff); letter-spacing: -0.02em;">
+            <h2 style="margin: 0; font-size: 15px; font-weight: 700; color: var(--color-primary); letter-spacing: -0.01em;">
               VB-Audio Virtual Cable Required
             </h2>
-            <p style="margin: 8px 0 0 0; font-size: 13.5px; color: var(--color-text-secondary, #94a3b8); line-height: 1.5; max-width: 480px;">
-              AudioPad requires the free <strong>VB-Audio Virtual Cable</strong> driver to route and mix soundboard audio into your microphone for Discord, games, and voice chats.
+            <p style="margin: 4px 0 0 0; font-size: 12px; color: var(--color-secondary); line-height: 1.45;">
+              AudioPad uses the VB-Audio Virtual Cable driver to route soundboard effects into your microphone for Discord, OBS, TeamSpeak, and games.
             </p>
           </div>
         </div>
 
         <!-- 3-Step Installation Guide -->
-        <div style="display: flex; flex-direction: column; gap: 10px; text-align: left; background: rgba(0, 0, 0, 0.25); border: 1px solid rgba(255, 255, 255, 0.06); border-radius: 12px; padding: 16px 20px;">
-          <div style="display: flex; align-items: flex-start; gap: 12px;">
-            <div style="min-width: 22px; height: 22px; border-radius: 50%; background: #3b82f6; color: #fff; font-size: 11px; font-weight: 700; display: flex; align-items: center; justify-content: center; margin-top: 1px;">1</div>
-            <div style="font-size: 12.5px; color: var(--color-text-primary, #e2e8f0); line-height: 1.4;">
-              <strong>Download & Extract:</strong> Download the official VB-CABLE driver zip file using the blue button below.
+        <div style="display: flex; flex-direction: column; gap: 8px; background: var(--bg-surface-inset); border: 1px solid var(--border-subtle); border-radius: var(--radius-sm); padding: 12px 14px;">
+          <div style="display: flex; align-items: flex-start; gap: 10px;">
+            <span style="font-family: var(--font-mono); font-size: 10.5px; font-weight: 700; background: var(--bg-surface); border: 1px solid var(--border-color); color: var(--color-primary); width: 20px; height: 20px; border-radius: var(--radius-xs); display: flex; align-items: center; justify-content: center; flex-shrink: 0;">1</span>
+            <div style="font-size: 12px; color: var(--color-primary); line-height: 1.4;">
+              <strong>Download Driver:</strong> Download the official VB-CABLE driver zip archive.
             </div>
           </div>
           
-          <div style="display: flex; align-items: flex-start; gap: 12px;">
-            <div style="min-width: 22px; height: 22px; border-radius: 50%; background: #3b82f6; color: #fff; font-size: 11px; font-weight: 700; display: flex; align-items: center; justify-content: center; margin-top: 1px;">2</div>
-            <div style="font-size: 12.5px; color: var(--color-text-primary, #e2e8f0); line-height: 1.4;">
-              <strong>Install as Administrator:</strong> Extract the zip, right-click <code style="background: rgba(255,255,255,0.1); padding: 1px 5px; border-radius: 4px; font-family: monospace;">VBCABLE_Setup_x64.exe</code>, select <strong>Run as administrator</strong>, and click <em>Install Driver</em>.
+          <div style="display: flex; align-items: flex-start; gap: 10px;">
+            <span style="font-family: var(--font-mono); font-size: 10.5px; font-weight: 700; background: var(--bg-surface); border: 1px solid var(--border-color); color: var(--color-primary); width: 20px; height: 20px; border-radius: var(--radius-xs); display: flex; align-items: center; justify-content: center; flex-shrink: 0;">2</span>
+            <div style="font-size: 12px; color: var(--color-primary); line-height: 1.4;">
+              <strong>Install as Administrator:</strong> Extract the archive, right-click <code style="font-family: var(--font-mono); font-size: 11px; background: rgba(255,255,255,0.08); padding: 1px 4px; border-radius: 2px;">VBCABLE_Setup_x64.exe</code>, select <em>Run as administrator</em>, and click <em>Install Driver</em>.
             </div>
           </div>
 
-          <div style="display: flex; align-items: flex-start; gap: 12px;">
-            <div style="min-width: 22px; height: 22px; border-radius: 50%; background: #3b82f6; color: #fff; font-size: 11px; font-weight: 700; display: flex; align-items: center; justify-content: center; margin-top: 1px;">3</div>
-            <div style="font-size: 12.5px; color: var(--color-text-primary, #e2e8f0); line-height: 1.4;">
-              <strong>Activate AudioPad:</strong> Once installed, click <strong>"Check Installation"</strong> below to unlock AudioPad!
+          <div style="display: flex; align-items: flex-start; gap: 10px;">
+            <span style="font-family: var(--font-mono); font-size: 10.5px; font-weight: 700; background: var(--bg-surface); border: 1px solid var(--border-color); color: var(--color-primary); width: 20px; height: 20px; border-radius: var(--radius-xs); display: flex; align-items: center; justify-content: center; flex-shrink: 0;">3</span>
+            <div style="font-size: 12px; color: var(--color-primary); line-height: 1.4;">
+              <strong>Verify Connection:</strong> Once installed, click <strong>"Check Installation Status"</strong> below to activate microphone routing.
             </div>
           </div>
         </div>
 
         <!-- Buttons -->
-        <div style="display: flex; flex-direction: column; gap: 10px;">
-          <button class="btn-primary" style="padding: 13px 20px; font-size: 14px; font-weight: 600; background: #3b82f6; border: none; border-radius: 8px; color: #ffffff; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px; box-shadow: 0 4px 12px rgba(59, 130, 246, 0.35);" onclick="handleDownloadVBCable()">
-            <span>📥</span> Download VB-Audio Virtual Cable (Official Website)
+        <div style="display: flex; flex-direction: column; gap: 8px;">
+          <button class="btn-primary" style="padding: 10px 16px; font-size: 12.5px; width: 100%;" onclick="handleDownloadVBCable()">
+            Download VB-Audio Virtual Cable (Official Website)
           </button>
 
-          <button class="btn-primary" style="padding: 12px 20px; font-size: 13.5px; font-weight: 600; background: var(--color-surface-hover, rgba(255, 255, 255, 0.08)); border: 1px solid var(--color-border, rgba(255, 255, 255, 0.15)); border-radius: 8px; color: var(--color-text-primary, #ffffff); cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px;" onclick="handleCheckVBCableInstalled()">
-            <span>${state.isCheckingVBCable ? icons.spinner : '🔄'}</span> Check Installation
+          <button class="btn-primary" style="padding: 9px 16px; font-size: 12px; background: var(--bg-surface); border: 1px solid var(--border-color); color: var(--color-primary); width: 100%;" onclick="handleCheckVBCableInstalled()">
+            <span>${state.isCheckingVBCable ? icons.spinner : '🔄'}</span> Check Installation Status
           </button>
         </div>
 
         <!-- Subtle Skip Link -->
-        <div style="margin-top: -6px;">
-          <button style="background: none; border: none; color: var(--color-text-tertiary, #64748b); font-size: 11.5px; cursor: pointer; text-decoration: underline;" onclick="handleSkipVBCablePrompt()">
+        <div style="text-align: center; margin-top: -4px;">
+          <button style="background: none; border: none; color: var(--color-muted); font-size: 11.5px; cursor: pointer; text-decoration: underline;" onclick="handleSkipVBCablePrompt()">
             Continue in local playback mode (soundboard on speakers only)
           </button>
         </div>
@@ -1450,13 +1485,16 @@ function renderApp() {
       <!-- Left Compact Category Rail -->
       <aside class="custom-sidebar">
         <div class="sidebar-header">
-          <span class="sidebar-logo">${icons.logo}</span>
-          <span class="logo-text">AudioPad</span>
+          <div class="sidebar-brand">
+            <span class="sidebar-logo">${icons.logo}</span>
+            <span class="logo-text">AudioPad</span>
+          </div>
+          <span class="version-tag">DESKTOP</span>
         </div>
         
-        <div class="sidebar-label">
+        <div class="sidebar-section-header">
           <span>Categories</span>
-          <span style="font-size: 10px; color: var(--color-muted);">${state.tabs.length}</span>
+          <span class="sidebar-count-badge">${state.tabs.length}</span>
         </div>
 
         <div class="folder-list">
@@ -1482,7 +1520,7 @@ function renderApp() {
                   <button class="folder-action-btn" title="Open in File Explorer" onclick="event.stopPropagation(); handleOpenFolder(${t.id})">
                     ${icons.openLink}
                   </button>
-                  <button class="folder-action-btn" title="Remove Folder" onclick="event.stopPropagation(); handleDeleteTab(${t.id})">
+                  <button class="folder-action-btn delete" title="Remove Folder" onclick="event.stopPropagation(); handleDeleteTab(${t.id})">
                     ${icons.trash}
                   </button>
                 </div>
@@ -1509,6 +1547,10 @@ function renderApp() {
             <span class="nav-icon">${icons.systemInfo}</span>
             <span>Diagnostics</span>
           </div>
+          <div class="nav-item ${state.currentView === 'help' ? 'active' : ''}" onclick="changeView('help')">
+            <span class="nav-icon">${icons.help}</span>
+            <span>Help & Guide</span>
+          </div>
         </div>
       </aside>
       
@@ -1532,7 +1574,7 @@ function renderApp() {
             <div class="header-faders-strip" title="Master Hardware Audio Faders">
               <div class="fader-item" title="Local playback volume (Speakers/Headphones)">
                 <span class="fader-icon">${icons.headphones}</span>
-                <span class="fader-name">Headphones</span>
+                <span class="fader-name">Phones</span>
                 <input type="range" class="fader-range" min="0" max="100" 
                        value="${state.settings.localVolume}" 
                        onpointerdown="handleSliderDragStart(event)" 
@@ -1559,7 +1601,7 @@ function renderApp() {
 
             ${state.outputDevices.length > 0 ? `
               <div class="output-select-container" style="display: flex; align-items: center;">
-                <select class="sort-select" style="max-width: 170px; height: 30px; padding: 0 var(--spacing-xs); font-size: 11px;" onchange="handleSelectOutputDevice(this.value)">
+                <select class="sort-select" style="max-width: 170px; height: 28px; font-size: 11px;" onchange="handleSelectOutputDevice(this.value)">
                   ${state.outputDevices.map(d => {
                     const isActive = state.settings.outputs.includes(d.name);
                     return `<option value="${d.name}" ${isActive ? 'selected' : ''}>Out: ${d.name} ${d.isDefault ? '(Default)' : ''}</option>`;
@@ -1587,6 +1629,14 @@ function renderApp() {
               </div>
             ` : ''}
             
+            <!-- Theme Quick Toggle -->
+            <button class="action-btn theme-toggle-btn" 
+                    style="width: 28px; height: 28px;" 
+                    title="${document.body.classList.contains('light-theme') ? 'Switch to Dark Slate Theme' : 'Switch to Light Soft Theme'}" 
+                    onclick="toggleTheme()">
+              ${document.body.classList.contains('light-theme') ? icons.moon : icons.sun}
+            </button>
+
             <!-- Emergency Panic Button -->
             <button class="panic-stop-btn" onclick="handleStopAll()" title="Emergency Panic Button (ESC)">
               <span class="panic-key">ESC</span>
@@ -1655,6 +1705,14 @@ function renderApp() {
   }
 }
 
+// Helper to format track durations consistently
+function formatDuration(ms) {
+  if (!ms) return '';
+  const s = Math.floor(ms / 1000);
+  const m = Math.floor(s / 60);
+  return `${m}:${(s % 60).toString().padStart(2, '0')}`;
+}
+
 // Render dynamic subcomponents inside the workspace body
 function renderViewContent(soundsList, isFolderView, activeTab) {
   if (state.currentView === 'folder' || state.currentView === 'favorites') {
@@ -1680,13 +1738,6 @@ function renderViewContent(soundsList, isFolderView, activeTab) {
             const length = ps ? (ps.lengthInMs || 1) : 0;
             const current = ps ? (ps.readInMs || 0) : 0;
             const percentage = length > 0 ? Math.min((current / length) * 100, 100) : 0;
-
-            const formatSecs = (ms) => {
-              if (!ms) return '';
-              const s = Math.floor(ms / 1000);
-              const m = Math.floor(s / 60);
-              return `${m}:${(s % 60).toString().padStart(2, '0')}`;
-            };
 
             return `
               <div class="deck-tile ${isPlaying ? 'playing' : ''} ${hasImage ? 'has-card-image' : ''}" 
@@ -1725,7 +1776,7 @@ function renderViewContent(soundsList, isFolderView, activeTab) {
                         <span class="eq-bar"></span>
                       </div>
                     ` : `
-                      <span class="deck-duration-pill">${sound.lengthInMs ? formatSecs(sound.lengthInMs) : ''}</span>
+                      <span class="deck-duration-pill">${sound.lengthInMs ? formatDuration(sound.lengthInMs) : ''}</span>
                     `}
                   </div>
 
@@ -1879,11 +1930,12 @@ function renderViewContent(soundsList, isFolderView, activeTab) {
                 <th style="width: 34px; text-align: center;">#</th>
                 <th style="width: 30px; text-align: center;">★</th>
                 <th style="width: 36px; text-align: center;">Play</th>
-                <th>Name</th>
-                <th style="width: 140px;">Hotkey</th>
-                <th style="width: 70px;">Status</th>
-                <th style="width: 80px;">Volume</th>
-                <th style="width: 100px; text-align: right;">Actions</th>
+                <th>Sound Name</th>
+                <th style="width: 120px;">Hotkey</th>
+                <th style="width: 60px;">Length</th>
+                <th style="width: 65px;">Status</th>
+                <th style="width: 70px;">Volume</th>
+                <th style="width: 90px; text-align: right;">Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -1905,7 +1957,7 @@ function renderViewContent(soundsList, isFolderView, activeTab) {
                       </button>
                     </td>
                     <td>
-                      <div class="sound-name-wrapper" style="display: flex; align-items: center; gap: 8px;">
+                      <div class="sound-name-wrapper" style="display: flex; align-items: center; gap: 7px;">
                         ${sound.image ? `
                           <div class="sound-row-avatar" style="background-image: url('${sound.image}');" title="Assigned image"></div>
                         ` : ''}
@@ -1916,6 +1968,11 @@ function renderViewContent(soundsList, isFolderView, activeTab) {
                       <button class="macro-keycap ${!sound.hotkeys || !sound.hotkeys.length ? 'unassigned' : ''}" onclick="event.stopPropagation(); startRecordHotkey(${sound.id})">
                         ${sound.hotkeys && sound.hotkeys.length > 0 ? sound.hotkeySequence : '+ Key'}
                       </button>
+                    </td>
+                    <td>
+                      <span style="font-family: var(--font-mono); font-size: 10.5px; color: var(--color-muted);">
+                        ${sound.lengthInMs ? formatDuration(sound.lengthInMs) : '--'}
+                      </span>
                     </td>
                     <td>
                       ${isPlaying ? `
@@ -2268,28 +2325,28 @@ function renderOsSettingsPanel() {
     return `
       <div class="card-section">
         <div class="card-title">Windows Routing Tools</div>
-        <div style="display: flex; flex-direction: column; gap: var(--spacing-md);">
+        <div style="display: flex; flex-direction: column; gap: var(--space-md);">
           ${!isInstalled ? `
-            <div style="display: flex; align-items: center; justify-content: space-between; padding: 12px 14px; background: rgba(234, 179, 8, 0.08); border: 1px solid rgba(234, 179, 8, 0.3); border-radius: 8px;">
-              <div style="display: flex; align-items: center; gap: 10px;">
-                <span style="font-size: 18px;">⚠️</span>
+            <div style="display: flex; align-items: center; justify-content: space-between; padding: 10px 12px; background: var(--color-warning-subtle); border: 1px solid rgba(245, 158, 11, 0.3); border-radius: var(--radius-sm);">
+              <div style="display: flex; align-items: center; gap: 8px;">
+                <span style="font-size: 16px;">⚠️</span>
                 <div>
-                  <div style="font-size: 12px; font-weight: 600; color: #eab308;">VB-Audio Virtual Cable Not Detected</div>
-                  <div style="font-size: 11px; color: var(--color-text-secondary);">Install the free VB-CABLE driver to route microphone and audio stream.</div>
+                  <div style="font-size: 11.5px; font-weight: 600; color: var(--color-warning);">VB-Audio Cable Not Detected</div>
+                  <div style="font-size: 10.5px; color: var(--color-secondary);">Install driver to route soundboard audio into microphone.</div>
                 </div>
               </div>
-              <button class="btn-primary" style="padding: 6px 12px; font-size: 11px; background: #eab308; color: #000; font-weight: 600;" onclick="window.openUrl && window.openUrl('https://vb-audio.com/Cable/')">
-                Download VB-Cable
+              <button class="btn-primary" style="padding: 5px 10px; font-size: 11px;" onclick="window.openUrl && window.openUrl('https://vb-audio.com/Cable/')">
+                Download Cable
               </button>
             </div>
           ` : ''}
 
           <div style="display: flex; justify-content: space-between; align-items: center;">
             <div class="checkbox-label-wrapper">
-              <div style="display: flex; align-items: center; gap: 8px;">
+              <div style="display: flex; align-items: center; gap: 6px;">
                 <span class="checkbox-title">VB-Audio Cable Integration</span>
-                <span style="display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: 500; ${isSetup ? 'background-color: rgba(34, 197, 94, 0.15); color: #22c55e;' : 'background-color: rgba(239, 68, 68, 0.15); color: #ef4444;'}">
-                  ${isSetup ? '● Active' : (isInstalled ? '○ Ready to Configure' : '○ Driver Missing')}
+                <span class="status-pill ${isSetup ? 'active' : (isInstalled ? 'warning' : 'admin')}">
+                  ${isSetup ? '● Active' : (isInstalled ? '○ Not Configured' : '○ Missing Driver')}
                 </span>
               </div>
               <span class="checkbox-desc">
@@ -2298,14 +2355,14 @@ function renderOsSettingsPanel() {
                   : (isInstalled ? `Routes microphone audio to virtual cable output.` : `Requires free VB-Audio Virtual Cable driver.`)}
               </span>
             </div>
-            <button class="btn-primary" style="padding: var(--spacing-xs) var(--spacing-sm); font-size: 11px; ${isSetup ? 'background-color: var(--color-surface); border: 1px solid var(--color-border); color: var(--color-primary);' : ''}" onclick="handleVBCableSetup()">
+            <button class="btn-primary" style="padding: 5px 10px; font-size: 11px; ${isSetup ? 'background-color: var(--bg-surface); border: 1px solid var(--border-color); color: var(--color-primary);' : ''}" onclick="handleVBCableSetup()">
               ${isSetup ? 'Reconfigure' : (isInstalled ? 'Configure Routing' : 'Get Driver')}
             </button>
           </div>
           
-          <div class="form-group" style="margin-bottom: 0;">
-            <label for="mic-override-select">Override Microphone device</label>
-            <select id="mic-override-select" class="sort-select" style="width: 100%; height: 36px;" onchange="handleMicOverrideChange(this.value)">
+          <div style="display: flex; flex-direction: column; gap: 4px;">
+            <label for="mic-override-select" style="font-size: 11px; color: var(--color-secondary);">Override Microphone device</label>
+            <select id="mic-override-select" class="sort-select" style="width: 100%; height: 30px;" onchange="handleMicOverrideChange(this.value)">
               <option value="" ${!isSetup || !state.selectedMic ? 'selected' : ''}>No Override</option>
               ${state.recordingDevices.map(d => {
                 const isSelected = isSetup && state.selectedMic && (state.selectedMic.guid === d.guid || state.selectedMic.name === d.name);
@@ -2315,24 +2372,24 @@ function renderOsSettingsPanel() {
           </div>
           
           ${isElevated ? `
-            <div style="display: flex; align-items: center; justify-content: space-between; padding: 10px 14px; background: rgba(34, 197, 94, 0.1); border: 1px solid rgba(34, 197, 94, 0.25); border-radius: 8px;">
-              <div style="display: flex; align-items: center; gap: 10px;">
-                <span style="font-size: 16px;">🛡️</span>
+            <div style="display: flex; align-items: center; justify-content: space-between; padding: 8px 12px; background: var(--color-active-subtle); border: 1px solid rgba(34, 197, 94, 0.25); border-radius: var(--radius-sm);">
+              <div style="display: flex; align-items: center; gap: 8px;">
+                <span style="font-size: 14px;">🛡️</span>
                 <div>
-                  <div style="font-size: 12px; font-weight: 600; color: #22c55e;">Running as Administrator</div>
-                  <div style="font-size: 11px; color: var(--color-text-secondary);">Direct audio endpoint permissions active</div>
+                  <div style="font-size: 11.5px; font-weight: 600; color: var(--color-active-signal);">Administrator Privileges</div>
+                  <div style="font-size: 10.5px; color: var(--color-secondary);">Direct audio endpoint permissions active</div>
                 </div>
               </div>
-              <button class="btn-primary" style="padding: 6px 12px; font-size: 11px; background: var(--color-surface); border: 1px solid var(--color-border); color: var(--color-text-primary);" onclick="handleOpenSoundControlPanel()">
+              <button class="btn-primary" style="padding: 4px 10px; font-size: 11px; background: var(--bg-surface); border: 1px solid var(--border-color); color: var(--color-primary);" onclick="handleOpenSoundControlPanel()">
                 Sound Control Panel
               </button>
             </div>
           ` : `
-            <div style="display: flex; flex-direction: column; gap: 8px;">
-              <button class="btn-primary" style="background-color: var(--color-accent); width: 100%;" onclick="handleRestartAsAdmin()">
+            <div style="display: flex; flex-direction: column; gap: 6px;">
+              <button class="btn-primary" style="width: 100%; padding: 7px 12px;" onclick="handleRestartAsAdmin()">
                 🛡️ Elevate Privileges (UAC)
               </button>
-              <button class="btn-primary" style="padding: 6px 12px; font-size: 11px; background: transparent; border: 1px solid var(--color-border); color: var(--color-text-secondary); width: 100%;" onclick="handleOpenSoundControlPanel()">
+              <button class="btn-primary" style="padding: 5px 10px; font-size: 11px; background: transparent; border: 1px solid var(--border-color); color: var(--color-secondary); width: 100%;" onclick="handleOpenSoundControlPanel()">
                 Open Sound Control Panel (Manual Fallback)
               </button>
             </div>
@@ -2345,20 +2402,20 @@ function renderOsSettingsPanel() {
     return `
       <div class="card-section">
         <div class="card-title">Linux PulseAudio Sinks</div>
-        <div style="display: flex; flex-direction: column; gap: var(--spacing-md);">
+        <div style="display: flex; flex-direction: column; gap: var(--space-md);">
           <div style="display: flex; justify-content: space-between; align-items: center;">
             <div class="checkbox-label-wrapper">
               <span class="checkbox-title">PulseAudio Switch-On-Connect</span>
               <span class="checkbox-desc">Configure PA module connection state.</span>
             </div>
-            <button class="btn-primary" style="padding: var(--spacing-xs) var(--spacing-sm); font-size: 11px;" onclick="handleUnloadSwitchOnConnect()">
+            <button class="btn-primary" style="padding: 4px 10px; font-size: 11px;" onclick="handleUnloadSwitchOnConnect()">
               Reset Modules
             </button>
           </div>
           
-          <div style="margin-top: var(--spacing-sm);">
-            <span class="checkbox-title" style="font-size: 12px; font-weight: 600;">Running Applications Passthrough</span>
-            <div class="output-list" style="margin-top: var(--spacing-xs);">
+          <div style="margin-top: 4px;">
+            <span class="checkbox-title" style="font-size: 11.5px; font-weight: 600;">Running Applications Passthrough</span>
+            <div class="output-list" style="margin-top: 4px;">
               ${state.playbackApps.length === 0 ? `
                 <div class="checkbox-desc">No running playback apps recognized</div>
               ` : state.playbackApps.map(app => {
@@ -2451,7 +2508,7 @@ function renderPlaybackDock() {
           <span style="color: var(--color-muted); display: flex; align-items: center;">${icons.music}</span>
           <div class="dock-track-text">
             <span class="dock-track-title" style="color: var(--color-secondary);">Soundboard Ready</span>
-            <span class="dock-track-sub">Press hotkey or trigger sound tile</span>
+            <span class="dock-track-sub">Press hotkey or trigger sound pad</span>
           </div>
         `}
       </div>
@@ -2461,19 +2518,19 @@ function renderPlaybackDock() {
           <button class="action-btn ${details && details.repeat ? 'active' : ''}" 
                   style="color: ${details && details.repeat ? 'var(--color-accent)' : 'inherit'};" 
                   title="Repeat Track" 
-                  ${!isPlaying ? 'disabled style="opacity: 0.4; cursor: default;"' : ''}
+                  ${!isPlaying ? 'disabled' : ''}
                   onclick="event.stopPropagation(); ${isPlaying && playSoundId !== null ? `window.repeatSound && window.repeatSound(${playSoundId}, ${details ? !details.repeat : false})` : ''}">
             ${icons.repeat}
           </button>
           <button class="action-btn ${isPlaying && details && !details.paused ? 'play-btn' : ''}" 
                   title="${isPlaying ? (details && details.paused ? 'Resume Playback' : 'Pause Playback') : 'Play'}" 
-                  ${!isPlaying ? 'disabled style="opacity: 0.4; cursor: default;"' : ''}
+                  ${!isPlaying ? 'disabled' : ''}
                   onclick="event.stopPropagation(); ${isPlaying && details && playSoundId !== null ? (details.paused ? `window.resumeSound(${playSoundId})` : `window.pauseSound(${playSoundId})`) : ''}">
             ${isPlaying && details && !details.paused ? icons.pause : icons.play}
           </button>
           <button class="action-btn stop-btn" 
                   title="Stop Playback" 
-                  ${!isPlaying ? 'disabled style="opacity: 0.4; cursor: default;"' : ''}
+                  ${!isPlaying ? 'disabled' : ''}
                   onclick="event.stopPropagation(); ${isPlaying && playSoundId !== null ? `handleStopSound(${playSoundId})` : ''}">
             ${icons.stop}
           </button>
@@ -2481,7 +2538,7 @@ function renderPlaybackDock() {
 
         <div class="dock-scrub-row">
           <span id="playback-dock-current" class="dock-time-text">${formatMs(current)}</span>
-          <div class="progress-bar-wrapper" style="cursor: ${isPlaying ? 'pointer' : 'default'}; height: 5px;" onclick="${isPlaying && playSoundId !== null ? `handleProgressBarSeek(${playSoundId}, event)` : ''}">
+          <div class="progress-bar-wrapper" style="cursor: ${isPlaying ? 'pointer' : 'default'};" onclick="${isPlaying && playSoundId !== null ? `handleProgressBarSeek(${playSoundId}, event)` : ''}">
             <div id="playback-dock-fill" class="progress-bar-fill" style="width: ${percentage}%"></div>
           </div>
           <span id="playback-dock-length" class="dock-time-text">${formatMs(length)}</span>
@@ -2490,7 +2547,7 @@ function renderPlaybackDock() {
       
       <div class="dock-right-meta">
         <span class="dock-route-pill" title="Audio Device Endpoint Target">
-          ${!state.isLinux && state.isVBCableSetup ? '🎙️ Mic Passthrough Active' : '🔉 ' + activeDeviceName}
+          ${!state.isLinux && state.isVBCableSetup ? '🎙️ Mic Active' : '🔉 ' + activeDeviceName}
         </span>
         <span class="dock-count-text">
           ${totalSounds} sounds
