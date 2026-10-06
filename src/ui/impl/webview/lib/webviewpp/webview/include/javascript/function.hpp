@@ -56,6 +56,7 @@ namespace Webview
                     //* If the function return type is void we just need to call it and ignore the return type
                     auto unpack = [function](auto &&...args) { function(args...); };
                     std::apply(unpack, packedArgs);
+                    return nullptr;
                 }
                 else
                 {
@@ -74,14 +75,13 @@ namespace Webview
                         {
                             return nlohmann::json(*rtn);
                         }
+                        return nullptr;
                     }
                     else
                     {
                         return nlohmann::json(rtn);
                     }
                 }
-
-                return nullptr;
             };
         }
 
