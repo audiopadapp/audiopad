@@ -38,11 +38,13 @@ let state = {
   activeTabId: null,
   currentView: 'folder', // 'folder', 'favorites', 'settings', 'system-info', 'help'
   searchQuery: '',
-  listViewMode: 'deck', // 'deck' (Stream Deck Macro Tiles), 'table' (High-density Table), 'grid' (Media Grid)
+  listViewMode: 'grid', // 'grid' (Media Grid), 'deck' (Stream Deck Macro Tiles), 'table' (High-density Table)
   activeVolumePopoverSoundId: null,
   hoveredVolumeSoundId: null,
   isMasterVolumeOpen: false,
   isMasterVolumeHovered: false,
+
+  selectedSoundIds: [], // Track sounds selected via Ctrl+Click in active view
 
   contextMenu: {
     visible: false,
@@ -162,6 +164,18 @@ async function init() {
       }
     }
 
+    // Determine initial view mode: localStorage override > savedSettings > default 'grid'
+    const localSavedMode = localStorage.getItem('audiopad_view_mode');
+    if (localSavedMode && ['grid', 'deck', 'table'].includes(localSavedMode)) {
+      state.listViewMode = localSavedMode;
+    } else if (state.settings && state.settings.viewMode !== undefined) {
+      if (state.settings.viewMode === 0) state.listViewMode = 'table';
+      else if (state.settings.viewMode === 2) state.listViewMode = 'deck';
+      else state.listViewMode = 'grid';
+    } else {
+      state.listViewMode = 'grid';
+    }
+
     // Load output and recording devices for selectors on startup
     if (window.getOutputs) {
       try {
@@ -278,7 +292,7 @@ async function init() {
     isInitialized = true;
     renderApp();
 
-    // Poll directories and tabs configuration changes from backend
+    // Poll directories and tabs configuration changes from backend using lightweight signature check
     setInterval(async () => {
       if (window.getTabs && 
           state.recordingHotkeySoundId === null && 
@@ -289,7 +303,7 @@ async function init() {
           !state.isMasterVolumeHovered) {
         try {
           const newTabs = await window.getTabs();
-          if (newTabs && JSON.stringify(newTabs) !== JSON.stringify(state.tabs)) {
+          if (newTabs && getTabsSignature(newTabs) !== getTabsSignature(state.tabs)) {
             state.tabs = newTabs;
             renderApp();
           }
@@ -297,7 +311,7 @@ async function init() {
           console.warn("Polling tabs error:", e);
         }
       }
-    }, 1000);
+    }, 4000);
   } catch (err) {
     console.error("Critical error during init:", err);
     renderApp();
@@ -609,6 +623,94 @@ function closeContextMenu() {
   }
 }
 
+function getTabsSignature(tabs) {
+  if (!tabs || !Array.isArray(tabs)) return "";
+  let sig = "";
+  for (let i = 0; i < tabs.length; i++) {
+    const t = tabs[i];
+    sig += `${t.id}:${t.name}:${t.sortMode}:${t.sounds ? t.sounds.length : 0};`;
+    const sounds = t.sounds || [];
+    for (let j = 0; j < sounds.length; j++) {
+      const s = sounds[j];
+      sig += `${s.id}-${s.name}-${s.modifiedDate}-${s.isFavorite}-${s.localVolume}-${s.remoteVolume}-${s.image ? s.image.length : 0}-${(s.hotkeys || []).join(',')};`;
+    }
+    sig += "|";
+  }
+  return sig;
+}
+
+async function optimizeImage(dataUrl, maxWidth = 300, maxHeight = 300) {
+  if (!dataUrl || typeof dataUrl !== 'string' || !dataUrl.startsWith('data:image/')) {
+    return dataUrl;
+  }
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      let width = img.width;
+      let height = img.height;
+      if (width <= maxWidth && height <= maxHeight && dataUrl.length < 35000) {
+        return resolve(dataUrl);
+      }
+      if (width > height) {
+        if (width > maxWidth) {
+          height = Math.round((height * maxWidth) / width);
+          width = maxWidth;
+        }
+      } else {
+        if (height > maxHeight) {
+          width = Math.round((width * maxHeight) / height);
+          height = maxHeight;
+        }
+      }
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.max(1, width);
+      canvas.height = Math.max(1, height);
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return resolve(dataUrl);
+      ctx.drawImage(img, 0, 0, width, height);
+      try {
+        const webp = canvas.toDataURL('image/webp', 0.85);
+        if (webp && webp.startsWith('data:image/webp') && webp.length < dataUrl.length) {
+          return resolve(webp);
+        }
+      } catch (e) {}
+      const png = canvas.toDataURL('image/png');
+      resolve(png && png.length < dataUrl.length ? png : dataUrl);
+    };
+    img.onerror = () => resolve(dataUrl);
+    img.src = dataUrl;
+  });
+}
+
+function handleSoundCardClick(soundId, event) {
+  if (event && (event.ctrlKey || event.metaKey)) {
+    event.preventDefault();
+    event.stopPropagation();
+    handleToggleSelectSound(soundId, event);
+    return;
+  }
+  handlePlaySound(soundId);
+}
+
+function handleToggleSelectSound(soundId, event) {
+  if (event) {
+    event.stopPropagation();
+  }
+  if (!state.selectedSoundIds) state.selectedSoundIds = [];
+  const idx = state.selectedSoundIds.indexOf(soundId);
+  if (idx >= 0) {
+    state.selectedSoundIds.splice(idx, 1);
+  } else {
+    state.selectedSoundIds.push(soundId);
+  }
+  renderApp();
+}
+
+function handleClearSelectedSounds() {
+  state.selectedSoundIds = [];
+  renderApp();
+}
+
 async function handleAssignSoundImage(soundId) {
   closeContextMenu();
   let imageDataUrl = '';
@@ -634,6 +736,7 @@ async function handleAssignSoundImage(soundId) {
   }
 
   if (imageDataUrl) {
+    imageDataUrl = await optimizeImage(imageDataUrl);
     if (window.setSoundImage) {
       await window.setSoundImage(soundId, imageDataUrl);
     }
@@ -655,18 +758,53 @@ async function handleRemoveSoundImage(soundId) {
     const s = (tab.sounds || []).find(snd => snd.id === soundId);
     if (s) s.image = "";
   }
+  if (state.selectedSoundIds) {
+    const sIdx = state.selectedSoundIds.indexOf(soundId);
+    if (sIdx >= 0) state.selectedSoundIds.splice(sIdx, 1);
+  }
   showToast("Image background removed", "info");
+  renderApp();
+}
+
+async function handleRemoveSoundsImage(soundIds) {
+  closeContextMenu();
+  if (!soundIds || soundIds.length === 0) return;
+  const idsToRemove = [...soundIds];
+  if (window.setSoundsImage) {
+    await window.setSoundsImage(idsToRemove, "");
+  }
+  for (const tab of state.tabs) {
+    for (const snd of (tab.sounds || [])) {
+      if (idsToRemove.includes(snd.id)) {
+        snd.image = "";
+      }
+    }
+  }
+  state.selectedSoundIds = [];
+  showToast(`Image background removed from ${idsToRemove.length} sounds`, "info");
   renderApp();
 }
 
 function handleOpenMultiImageModal(initialSoundId = null) {
   closeContextMenu();
   const currentTab = state.tabs.find(t => t.id === state.activeTabId) || state.tabs[0];
-  const soundIds = currentTab && currentTab.sounds ? currentTab.sounds.map(s => s.id) : [];
+  const allTabSoundIds = currentTab && currentTab.sounds ? currentTab.sounds.map(s => s.id) : [];
+
+  let soundIdsToSelect = [];
+  if (state.selectedSoundIds && state.selectedSoundIds.length > 0) {
+    soundIdsToSelect = [...state.selectedSoundIds];
+    if (initialSoundId && !soundIdsToSelect.includes(initialSoundId)) {
+      soundIdsToSelect.push(initialSoundId);
+    }
+  } else if (initialSoundId) {
+    soundIdsToSelect = [initialSoundId];
+  } else {
+    soundIdsToSelect = allTabSoundIds;
+  }
 
   state.multiImageModal = {
     visible: true,
-    selectedSoundIds: initialSoundId ? [initialSoundId] : soundIds,
+    selectedSoundIds: soundIdsToSelect,
     imageDataUrl: ''
   };
   renderApp();
@@ -725,13 +863,14 @@ async function handleBrowseMultiImage() {
   }
 
   if (imageDataUrl) {
+    imageDataUrl = await optimizeImage(imageDataUrl);
     state.multiImageModal.imageDataUrl = imageDataUrl;
     renderApp();
   }
 }
 
 async function handleApplyMultiSoundImage() {
-  const { selectedSoundIds, imageDataUrl } = state.multiImageModal;
+  let { selectedSoundIds, imageDataUrl } = state.multiImageModal;
   if (!imageDataUrl) {
     showToast("Please select an image first", "error");
     return;
@@ -740,6 +879,8 @@ async function handleApplyMultiSoundImage() {
     showToast("Please select at least one sound", "error");
     return;
   }
+
+  imageDataUrl = await optimizeImage(imageDataUrl);
 
   if (window.setSoundsImage) {
     await window.setSoundsImage(selectedSoundIds, imageDataUrl);
@@ -1343,10 +1484,21 @@ function handleSearch(val) {
   }
 }
 
-// Change list layout view mode
 function changeListViewMode(mode) {
   state.listViewMode = mode;
+  try {
+    localStorage.setItem('audiopad_view_mode', mode);
+    const viewCode = mode === 'grid' ? 1 : (mode === 'deck' ? 2 : 0);
+    state.settings.viewMode = viewCode;
+    if (window.changeSettings) {
+      window.changeSettings(state.settings);
+    }
+  } catch (e) {}
   renderApp();
+}
+
+async function updateDefaultViewMode(mode) {
+  changeListViewMode(mode);
 }
 
 // --- Templates Rendering ---
@@ -1738,14 +1890,15 @@ function renderViewContent(soundsList, isFolderView, activeTab) {
             const ps = state.playingSounds[sound.id];
             const isPlaying = !!ps;
             const hasImage = !!sound.image;
+            const isSelected = state.selectedSoundIds && state.selectedSoundIds.includes(sound.id);
             const length = ps ? (ps.lengthInMs || 1) : 0;
             const current = ps ? (ps.readInMs || 0) : 0;
             const percentage = length > 0 ? Math.min((current / length) * 100, 100) : 0;
 
             return `
-              <div class="deck-tile ${isPlaying ? 'playing' : ''} ${hasImage ? 'has-card-image' : ''}" 
+              <div class="deck-tile ${isPlaying ? 'playing' : ''} ${hasImage ? 'has-card-image' : ''} ${isSelected ? 'is-selected' : ''}" 
                    style="${hasImage ? `background-image: url('${sound.image}');` : ''}"
-                   onclick="handlePlaySound(${sound.id})"
+                   onclick="handleSoundCardClick(${sound.id}, event)"
                    oncontextmenu="handleSoundContextMenu(${sound.id}, event)">
                 ${hasImage ? `<div class="card-image-overlay"></div>` : ''}
 
@@ -1762,9 +1915,8 @@ function renderViewContent(soundsList, isFolderView, activeTab) {
                   </button>
                 </div>
 
-                <!-- Middle: Sound Name & Icon -->
+                <!-- Middle: Sound Name -->
                 <div class="deck-tile-mid">
-                  ${hasImage ? '' : `<div style="color: var(--color-muted); font-size: 22px;">${icons.music}</div>`}
                   <span class="deck-sound-name" title="${sound.name}">${sound.name}</span>
                 </div>
 
@@ -1844,9 +1996,11 @@ function renderViewContent(soundsList, isFolderView, activeTab) {
           ${soundsList.map(sound => {
             const isPlaying = !!state.playingSounds[sound.id];
             const hasImage = !!sound.image;
+            const isSelected = state.selectedSoundIds && state.selectedSoundIds.includes(sound.id);
             return `
-              <div class="sound-grid-card ${isPlaying ? 'playing' : ''} ${hasImage ? 'has-card-image' : ''}" 
+              <div class="sound-grid-card ${isPlaying ? 'playing' : ''} ${hasImage ? 'has-card-image' : ''} ${isSelected ? 'is-selected' : ''}" 
                    style="${hasImage ? `background-image: url('${sound.image}');` : ''}"
+                   onclick="handleSoundCardClick(${sound.id}, event)"
                    oncontextmenu="handleSoundContextMenu(${sound.id}, event)">
                 ${hasImage ? `<div class="card-image-overlay"></div>` : ''}
                 <div class="card-top" onclick="event.stopPropagation()">
@@ -1944,8 +2098,10 @@ function renderViewContent(soundsList, isFolderView, activeTab) {
             <tbody>
               ${soundsList.map((sound, idx) => {
                 const isPlaying = !!state.playingSounds[sound.id];
+                const isSelected = state.selectedSoundIds && state.selectedSoundIds.includes(sound.id);
                 return `
-                  <tr class="sound-row ${isPlaying ? 'playing' : ''}" 
+                  <tr class="sound-row ${isPlaying ? 'playing' : ''} ${isSelected ? 'is-selected' : ''}" 
+                      onclick="handleSoundCardClick(${sound.id}, event)"
                       ondblclick="handlePlaySound(${sound.id})" 
                       oncontextmenu="handleSoundContextMenu(${sound.id}, event)">
                     <td style="text-align: center; font-family: var(--font-mono); font-size: 11px; color: var(--color-muted);">${idx + 1}</td>
@@ -2050,6 +2206,22 @@ function renderViewContent(soundsList, isFolderView, activeTab) {
       `;
     }
 
+    let selectionBarHtml = '';
+    if (state.selectedSoundIds && state.selectedSoundIds.length > 0) {
+      selectionBarHtml = `
+        <div class="selection-action-bar">
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <span><strong>${state.selectedSoundIds.length}</strong> sound(s) selected</span>
+          </div>
+          <div style="display: flex; gap: 8px;">
+            <button class="btn-subtle" onclick="handleOpenMultiImageModal()">${icons.image} Assign Image...</button>
+            <button class="btn-subtle danger" onclick="handleRemoveSoundsImage(state.selectedSoundIds)">${icons.trash} Remove Images</button>
+            <button class="btn-subtle" onclick="handleClearSelectedSounds()">Deselect All</button>
+          </div>
+        </div>
+      `;
+    }
+
     return `
       ${isFolderView && activeTab ? `
         <div class="table-header-wrapper">
@@ -2063,6 +2235,7 @@ function renderViewContent(soundsList, isFolderView, activeTab) {
         </div>
       ` : ''}
       
+      ${selectionBarHtml}
       ${contentHtml}
     `;
   }
@@ -2122,6 +2295,18 @@ function renderViewContent(soundsList, isFolderView, activeTab) {
                 <option value="0" ${state.settings.theme === 0 ? 'selected' : ''}>Follow System Settings</option>
                 <option value="1" ${state.settings.theme === 1 ? 'selected' : ''}>Dark Slate Theme</option>
                 <option value="2" ${state.settings.theme === 2 ? 'selected' : ''}>Light Soft Theme</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="card-section">
+            <div class="card-title">Default Layout & View Mode</div>
+            <div class="form-group">
+              <label for="default-view-select">Default Soundboard View Mode</label>
+              <select id="default-view-select" class="sort-select" style="width: 100%; height: 36px;" onchange="updateDefaultViewMode(this.value)">
+                <option value="grid" ${state.listViewMode === 'grid' ? 'selected' : ''}>Media Grid View (Default)</option>
+                <option value="deck" ${state.listViewMode === 'deck' ? 'selected' : ''}>Stream Deck Macro Pads</option>
+                <option value="table" ${state.listViewMode === 'table' ? 'selected' : ''}>Soundpad High-Density Table</option>
               </select>
             </div>
           </div>
@@ -2881,55 +3066,73 @@ function renderContextMenu() {
 
   const isPlaying = !!state.playingSounds[soundId];
   const hasImage = !!targetSound.image;
+  const isMultiSelected = state.selectedSoundIds && state.selectedSoundIds.length > 1 && state.selectedSoundIds.includes(soundId);
 
   return `
     <div class="custom-context-menu" style="left: ${x}px; top: ${y}px;" onclick="event.stopPropagation()">
       <div style="padding: 4px 8px 6px 8px; font-size: 11px; font-weight: 700; color: var(--color-muted); text-transform: uppercase; letter-spacing: 0.05em; border-bottom: 1px solid var(--border-color); margin-bottom: 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
-        ${targetSound.name}
+        ${isMultiSelected ? `${state.selectedSoundIds.length} Sounds Selected` : targetSound.name}
       </div>
 
-      <button class="context-menu-item" onclick="closeContextMenu(); handlePlaySound(${soundId})">
-        <span class="context-menu-icon">${isPlaying ? icons.stop : icons.play}</span>
-        <span>${isPlaying ? 'Restart Sound' : 'Play Sound'}</span>
-      </button>
-
-      ${isPlaying ? `
-        <button class="context-menu-item danger" onclick="closeContextMenu(); handleStopSound(${soundId})">
-          <span class="context-menu-icon">${icons.stop}</span>
-          <span>Stop Sound</span>
+      ${isMultiSelected ? `
+        <button class="context-menu-item" onclick="handleOpenMultiImageModal()">
+          <span class="context-menu-icon">📑</span>
+          <span>Assign Image to Selected (${state.selectedSoundIds.length})...</span>
         </button>
-      ` : ''}
 
-      <div class="context-menu-divider"></div>
-
-      <button class="context-menu-item" onclick="handleAssignSoundImage(${soundId})">
-        <span class="context-menu-icon">${icons.image}</span>
-        <span>${hasImage ? 'Change Image...' : 'Assign Image...'}</span>
-      </button>
-
-      <button class="context-menu-item" onclick="handleOpenMultiImageModal(${soundId})">
-        <span class="context-menu-icon">📑</span>
-        <span>Assign Image to Multiple...</span>
-      </button>
-
-      ${hasImage ? `
-        <button class="context-menu-item danger" onclick="handleRemoveSoundImage(${soundId})">
+        <button class="context-menu-item danger" onclick="handleRemoveSoundsImage(state.selectedSoundIds)">
           <span class="context-menu-icon">${icons.trash}</span>
-          <span>Remove Image</span>
+          <span>Remove Images from Selected (${state.selectedSoundIds.length})</span>
         </button>
-      ` : ''}
 
-      <div class="context-menu-divider"></div>
+        <button class="context-menu-item" onclick="handleClearSelectedSounds(); closeContextMenu();">
+          <span class="context-menu-icon">✖</span>
+          <span>Deselect All</span>
+        </button>
+      ` : `
+        <button class="context-menu-item" onclick="closeContextMenu(); handlePlaySound(${soundId})">
+          <span class="context-menu-icon">${isPlaying ? icons.stop : icons.play}</span>
+          <span>${isPlaying ? 'Restart Sound' : 'Play Sound'}</span>
+        </button>
 
-      <button class="context-menu-item" onclick="closeContextMenu(); toggleFavorite(${soundId}, ${targetSound.isFavorite})">
-        <span class="context-menu-icon">${targetSound.isFavorite ? '★' : '☆'}</span>
-        <span>${targetSound.isFavorite ? 'Remove from Favorites' : 'Add to Favorites'}</span>
-      </button>
+        ${isPlaying ? `
+          <button class="context-menu-item danger" onclick="closeContextMenu(); handleStopSound(${soundId})">
+            <span class="context-menu-icon">${icons.stop}</span>
+            <span>Stop Sound</span>
+          </button>
+        ` : ''}
 
-      <button class="context-menu-item" onclick="closeContextMenu(); startRecordHotkey(${soundId})">
-        <span class="context-menu-icon">⌨️</span>
-        <span>Assign Hotkey</span>
-      </button>
+        <div class="context-menu-divider"></div>
+
+        <button class="context-menu-item" onclick="handleAssignSoundImage(${soundId})">
+          <span class="context-menu-icon">${icons.image}</span>
+          <span>${hasImage ? 'Change Image...' : 'Assign Image...'}</span>
+        </button>
+
+        <button class="context-menu-item" onclick="handleOpenMultiImageModal(${soundId})">
+          <span class="context-menu-icon">📑</span>
+          <span>Assign Image to Multiple...</span>
+        </button>
+
+        ${hasImage ? `
+          <button class="context-menu-item danger" onclick="handleRemoveSoundImage(${soundId})">
+            <span class="context-menu-icon">${icons.trash}</span>
+            <span>Remove Image</span>
+          </button>
+        ` : ''}
+
+        <div class="context-menu-divider"></div>
+
+        <button class="context-menu-item" onclick="closeContextMenu(); toggleFavorite(${soundId}, ${targetSound.isFavorite})">
+          <span class="context-menu-icon">${targetSound.isFavorite ? '★' : '☆'}</span>
+          <span>${targetSound.isFavorite ? 'Remove from Favorites' : 'Add to Favorites'}</span>
+        </button>
+
+        <button class="context-menu-item" onclick="closeContextMenu(); startRecordHotkey(${soundId})">
+          <span class="context-menu-icon">⌨️</span>
+          <span>Assign Hotkey</span>
+        </button>
+      `}
     </div>
   `;
 }
@@ -2992,9 +3195,10 @@ function renderMultiImageModal() {
           `}
         </div>
 
-        <div class="modal-actions" style="margin-top: 16px;">
-          <button class="modal-btn save-btn" onclick="handleApplyMultiSoundImage()" ${!imageDataUrl || selectedSoundIds.length === 0 ? 'disabled style="opacity: 0.5; cursor: not-allowed;"' : ''}>Apply Image</button>
+        <div class="modal-actions" style="margin-top: 16px; display: flex; gap: 8px; justify-content: flex-end;">
+          <button class="modal-btn danger-btn" onclick="handleRemoveSoundsImage(state.multiImageModal.selectedSoundIds); handleCloseMultiImageModal();" ${selectedSoundIds.length === 0 ? 'disabled style="opacity: 0.5; cursor: not-allowed;"' : ''}>Remove Images</button>
           <button class="modal-btn cancel-btn" onclick="handleCloseMultiImageModal()">Cancel</button>
+          <button class="modal-btn save-btn" onclick="handleApplyMultiSoundImage()" ${!imageDataUrl || selectedSoundIds.length === 0 ? 'disabled style="opacity: 0.5; cursor: not-allowed;"' : ''}>Apply Image</button>
         </div>
       </div>
     </div>
