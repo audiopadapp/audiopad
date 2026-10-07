@@ -898,9 +898,11 @@ html, body {
 .deck-tile-mid {
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  justify-content: center;
+  flex: 1;
+  min-height: 0;
   overflow: hidden;
-  margin: 3px 0;
+  margin: 2px 0;
 }
 
 .deck-sound-name {
@@ -913,6 +915,12 @@ html, body {
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   line-height: 1.3;
+  word-break: break-word;
+}
+
+.deck-tile.has-card-image .deck-sound-name {
+  color: #ffffff !important;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.9);
 }
 
 .deck-tile-bottom {
@@ -1847,4 +1855,73 @@ html, body {
 
 @keyframes spin {
   100% { transform: rotate(360deg); }
+}
+
+/* Multi-Selection States */
+.deck-tile.is-selected,
+.sound-grid-card.is-selected {
+  outline: 2px solid var(--color-accent) !important;
+  outline-offset: -1px;
+  box-shadow: 0 0 12px rgba(59, 130, 246, 0.5) !important;
+}
+
+.sound-row.is-selected {
+  background-color: var(--bg-surface-hover) !important;
+  box-shadow: inset 3px 0 0 var(--color-accent) !important;
+}
+
+.selection-action-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 14px;
+  margin-bottom: 12px;
+  background: var(--bg-surface-inset);
+  border: 1px solid var(--color-accent);
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-primary);
+  animation: toast-in 0.15s ease-out;
+}
+
+.btn-subtle {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  font-size: 11px;
+  font-weight: 600;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-xs);
+  color: var(--color-primary);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.btn-subtle:hover {
+  background: var(--bg-surface-hover);
+  border-color: var(--border-strong);
+}
+
+.btn-subtle.danger {
+  color: var(--color-danger);
+  border-color: rgba(239, 68, 68, 0.3);
+}
+
+.btn-subtle.danger:hover {
+  background: rgba(239, 68, 68, 0.1);
+  border-color: var(--color-danger);
+}
+
+.modal-btn.danger-btn {
+  background: rgba(239, 68, 68, 0.15);
+  color: #fca5a5;
+  border-color: var(--color-danger);
+}
+
+.modal-btn.danger-btn:hover {
+  background: var(--color-danger);
+  color: #ffffff;
 }
