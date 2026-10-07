@@ -1,6 +1,7 @@
 #include "data.hpp"
 #include <core/global/globals.hpp>
 #include <fancy.hpp>
+#include <unordered_set>
 
 namespace Audiopad::Objects
 {
@@ -129,20 +130,23 @@ namespace Audiopad::Objects
         height = other.height;
         soundIdCounter = other.soundIdCounter;
 
-        Globals::gSounds->clear();
-        Globals::gFavorites->clear();
-
-        for (std::size_t i = 0; tabs.size() > i; i++)
+        if (this == &Globals::gData)
         {
-            auto &tab = tabs.at(i);
-            tab.id = static_cast<std::uint32_t>(i);
+            Globals::gSounds->clear();
+            Globals::gFavorites->clear();
 
-            for (auto &sound : tab.sounds)
+            for (std::size_t i = 0; tabs.size() > i; i++)
             {
-                Globals::gSounds->insert({sound.id, sound});
-                if (sound.isFavorite)
+                auto &tab = tabs.at(i);
+                tab.id = static_cast<std::uint32_t>(i);
+
+                for (auto &sound : tab.sounds)
                 {
-                    Globals::gFavorites->insert({sound.id, sound});
+                    Globals::gSounds->insert({sound.id, sound});
+                    if (sound.isFavorite)
+                    {
+                        Globals::gFavorites->insert({sound.id, sound});
+                    }
                 }
             }
         }
@@ -202,22 +206,60 @@ namespace Audiopad::Objects
     }
     void Data::setSoundImage(const std::uint32_t &id, const std::string &image)
     {
+        for (auto &tab : tabs)
+        {
+            for (auto &sound : tab.sounds)
+            {
+                if (sound.id == id)
+                {
+                    sound.image = image;
+                    break;
+                }
+            }
+        }
+
         auto sound = getSound(id);
         if (sound)
         {
             sound->get().image = image;
-            auto scopedFavorites = Globals::gFavorites.scoped();
-            if (scopedFavorites->find(id) != scopedFavorites->end())
-            {
-                scopedFavorites->at(id).get().image = image;
-            }
+        }
+
+        auto scopedFavorites = Globals::gFavorites.scoped();
+        if (scopedFavorites->find(id) != scopedFavorites->end())
+        {
+            scopedFavorites->at(id).get().image = image;
         }
     }
     void Data::setSoundsImage(const std::vector<std::uint32_t> &ids, const std::string &image)
     {
+        std::unordered_set<std::uint32_t> idSet(ids.begin(), ids.end());
+        for (auto &tab : tabs)
+        {
+            for (auto &sound : tab.sounds)
+            {
+                if (idSet.find(sound.id) != idSet.end())
+                {
+                    sound.image = image;
+                }
+            }
+        }
+
         for (const auto &id : ids)
         {
-            setSoundImage(id, image);
+            auto sound = getSound(id);
+            if (sound)
+            {
+                sound->get().image = image;
+            }
+        }
+
+        auto scopedFavorites = Globals::gFavorites.scoped();
+        for (const auto &id : ids)
+        {
+            if (scopedFavorites->find(id) != scopedFavorites->end())
+            {
+                scopedFavorites->at(id).get().image = image;
+            }
         }
     }
 } // namespace Audiopad::Objects

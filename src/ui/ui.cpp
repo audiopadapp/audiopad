@@ -78,8 +78,21 @@ namespace Audiopad::Objects
 #endif
                 sound.name = file.stem().u8string();
 
-                auto oldSound = std::find_if(tab.sounds.begin(), tab.sounds.end(),
-                                             [&sound](const auto &item) { return item.path == sound.path; });
+                auto oldSound = std::find_if(tab.sounds.begin(), tab.sounds.end(), [&sound](const auto &item) {
+                    if (item.path == sound.path) return true;
+#if defined(_WIN32)
+                    std::string p1 = item.path;
+                    std::string p2 = sound.path;
+                    std::transform(p1.begin(), p1.end(), p1.begin(), [](char c) {
+                        return c == '\\' ? '/' : static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+                    });
+                    std::transform(p2.begin(), p2.end(), p2.begin(), [](char c) {
+                        return c == '\\' ? '/' : static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+                    });
+                    if (p1 == p2) return true;
+#endif
+                    return item.name == sound.name;
+                });
 
                 if (oldSound != tab.sounds.end())
                 {
